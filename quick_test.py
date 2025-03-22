@@ -2,67 +2,132 @@
 """
 Quick test script for the LLM Uncertainty Benchmark.
 This script tests the benchmark with a small sample size on one task.
+It uses the improved dataset loading from dataset_utils.py.
 """
 
 import os
 import argparse
-from main import LLMUncertaintyBenchmark
+import logging
+import random
+from typing import List, Dict, Any
+import numpy as np
+import requests
+import json
+from tqdm import tqdm
+
+# Import dataset utilities directly
+from dataset_utils import load_hellaswag_dataset
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 def quick_test(api_base_url, api_key, model_name, output_dir):
     """
-    Run a quick test of the benchmark with one model on one task.
+    Run a quick test of the benchmark with one model on a few samples.
     """
     print(f"Running quick test with model: {model_name}")
     
-    # Initialize with small sample size to test quickly
-    benchmark = LLMUncertaintyBenchmark(
-        api_base_url=api_base_url,
-        api_key=api_key,
-        calibration_ratio=0.5,
-        error_rate=0.1,
-        num_demonstrations={"qa": 2}  # Only use 2 demos for faster testing
+    # Load a small set of samples (just 5 for quick testing)
+    sample_size = 5
+    print(f"Loading {sample_size} samples from HellaSwag dataset for quick testing...")
+    
+    try:
+        dataset = load_hellaswag_dataset(sample_size)
+        
+        if not dataset:
+            print("Failed to load dataset. Exiting test.")
+            return
+            
+        print(f"Successfully loaded {len(dataset)} samples.")
+        
+        # Add options E and F to all questions
+        for item in dataset:
+            item['choices'].extend(['I don\'t know', 'None of the above'])
+            item['choice_labels'].extend(['E', 'F'])
+        
+        # Process each sample
+        correct_count = 0
+        
+        for i, item in enumerate(dataset):
+            print(f"\nTesting sample {i+1}/{len(dataset)}")
+            
+            # Format the prompt
+            prompt = format_prompt(item)
+            
+            # Get prediction
+            try:
+                prediction = get_prediction(api_base_url, api_key, model_name, prompt)
+                print(f"Model prediction: {prediction}")
+                print(f"Correct answer: {item['answer']}")
+                
+                if prediction == item['answer']:
+                    correct_count += 1
+                    print("✓ Correct!")
+                else:
+                    print("✗ Incorrect")
+            except Exception as e:
+                print(f"Error getting prediction: {e}")
+                continue
+        
+        # Report results
+        if len(dataset) > 0:
+            accuracy = correct_count / len(dataset) * 100
+            print(f"\nQuick test results: {correct_count}/{len(dataset)} correct ({accuracy:.1f}%)")
+        
+        print("\nQuick test completed successfully!")
+        
+    except Exception as e:
+        print(f"Error during quick test: {e}")
+
+def format_prompt(item):
+    """Format a simple prompt for the item."""
+    context_text = ""
+    if item['context']:
+        context_text = f"Context: {item['context']}\n\n"
+    
+    choices_text = "Choices:\n"
+    for label, choice in zip(item['choice_labels'], item['choices']):
+        choices_text += f"{label}. {choice}\n"
+    
+    prompt = f"{context_text}Question: {item['question']}\n\n{choices_text}\nAnswer:"
+    
+    return prompt
+
+def get_prediction(api_base_url, api_key, model_name, prompt):
+    """Get prediction from the model API."""
+    headers = {
+        "Content-Type": "application/json"
+    }
+    
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    
+    # Use standard completion API
+    data = {
+        "model": model_name,
+        "prompt": prompt,
+        "temperature": 0.0,
+        "max_tokens": 1,
+        "stop": ["\n"]
+    }
+    
+    response = requests.post(
+        f"{api_base_url}/completions", 
+        headers=headers,
+        json=data
     )
     
-    # Only prepare the QA dataset with a small sample
-    class QuickTestBenchmark(LLMUncertaintyBenchmark):
-        def _load_mmlu_dataset(self, category, samples_per_category):
-            """Override to use a much smaller dataset for testing."""
-            return super()._load_mmlu_dataset(category, min(samples_per_category, 5))
+    response.raise_for_status()
+    result = response.json()
     
-    benchmark = QuickTestBenchmark(
-        api_base_url=api_base_url,
-        api_key=api_key,
-        calibration_ratio=0.5,
-        error_rate=0.1,
-        num_demonstrations={"qa": 2}
-    )
+    # Extract the prediction (should be a single letter A-F)
+    prediction = result["choices"][0]["text"].strip()
     
-    # Prepare only QA dataset
-    print("Preparing QA dataset (small sample)...")
-    benchmark.prepare_datasets(tasks=["qa"], sample_size=20)
-    
-    # Test with just one prompting strategy
-    print("Evaluating model...")
-    is_chat_model = "chat" in model_name.lower() or "instruct" in model_name.lower()
-    benchmark.evaluate_model(
-        model_name=model_name,
-        tasks=["qa"],
-        prompt_strategies=["base"],
-        use_chat_template=is_chat_model
-    )
-    
-    # Save results
-    os.makedirs(output_dir, exist_ok=True)
-    print(f"Saving results to {output_dir}...")
-    benchmark.save_results(output_dir)
-    
-    # Print results
-    report = benchmark.generate_report()
-    print("\nQUICK TEST RESULTS:")
-    print(report)
-    
-    print("\nTest completed successfully! If everything worked, you can now run the full benchmark.")
-    print("Note: The results from this quick test are based on a very small sample and shouldn't be used for any real evaluation.")
+    return prediction
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Quick test for LLM Uncertainty Benchmark")
