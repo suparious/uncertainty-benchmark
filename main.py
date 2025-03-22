@@ -6,8 +6,16 @@ import requests
 import logging
 from typing import List, Dict, Tuple, Any, Optional, Union
 from tqdm import tqdm
-from datasets import load_dataset
 import torch
+
+# Import dataset utilities
+from dataset_utils import (
+    load_mmlu_dataset,
+    load_cosmos_qa_dataset,
+    load_hellaswag_dataset,
+    load_halueval_dialogue_dataset,
+    load_halueval_summarization_dataset
+)
 
 # Configure logging
 logging.basicConfig(
@@ -87,37 +95,35 @@ class LLMUncertaintyBenchmark:
         for task in tasks:
             logger.info(f"Preparing dataset for {task} task...")
             
+            # Load the appropriate dataset based on the task
             if task == "qa":
                 # Load MMLU dataset
-                categories = ['humanities', 'social_sciences', 'stem', 'other']
-                samples_per_category = sample_size // len(categories)
-                
-                dataset = []
-                for category in categories:
-                    # This would need to be adapted based on actual MMLU structure
-                    # For simplicity, we're assuming a way to filter by category
-                    category_data = self._load_mmlu_dataset(category, samples_per_category)
-                    dataset.extend(category_data)
+                dataset = load_mmlu_dataset(sample_size)
                 
             elif task == "rc":
                 # Load CosmosQA dataset
-                dataset = self._load_cosmos_qa_dataset(sample_size)
+                dataset = load_cosmos_qa_dataset(sample_size)
                 
             elif task == "ci":
                 # Load HellaSwag dataset
-                dataset = self._load_hellaswag_dataset(sample_size)
+                dataset = load_hellaswag_dataset(sample_size)
                 
             elif task == "drs":
                 # Load HaluEval dialogue dataset
-                dataset = self._load_halueval_dialogue_dataset(sample_size)
+                dataset = load_halueval_dialogue_dataset(sample_size)
                 
             elif task == "ds":
                 # Load HaluEval summarization dataset
-                dataset = self._load_halueval_summarization_dataset(sample_size)
+                dataset = load_halueval_summarization_dataset(sample_size)
             
             else:
                 raise ValueError(f"Unknown task: {task}")
             
+            # Make sure we have data
+            if not dataset:
+                logger.warning(f"No data loaded for task {task}. Skipping...")
+                continue
+                
             # Add options E and F to all questions
             for item in dataset:
                 item['choices'].extend(['I don\'t know', 'None of the above'])
@@ -136,149 +142,16 @@ class LLMUncertaintyBenchmark:
             }
             
             # Prepare demonstrations
-            if self.num_demonstrations[task] > 0:
+            if self.num_demonstrations[task] > 0 and len(calibration_set) >= self.num_demonstrations[task]:
                 self.demonstrations[task] = self._prepare_demonstrations(task)
+            else:
+                logger.warning(f"Not enough calibration samples for demonstrations in task {task}")
+                self.demonstrations[task] = []
             
             logger.info(f"Prepared {len(dataset)} samples for {task} task "
                        f"({len(calibration_set)} for calibration, {len(test_set)} for testing)")
     
-    def _load_mmlu_dataset(self, category: str, samples_per_category: int) -> List[Dict]:
-        """Load and format MMLU dataset for a specific category."""
-        try:
-            # Simplified loading for example purposes
-            # You would need to adapt this to actual MMLU structure
-            dataset = load_dataset("cais/mmlu", category)
-            
-            # Convert to our standard format
-            formatted_data = []
-            for i, item in enumerate(dataset['test']):
-                if i >= samples_per_category:
-                    break
-                    
-                formatted_data.append({
-                    'id': f"{category}_{i}",
-                    'question': item['question'],
-                    'context': None,  # MMLU doesn't have context
-                    'choices': item['choices'],
-                    'choice_labels': ['A', 'B', 'C', 'D'],
-                    'answer': item['answer'],
-                    'category': category
-                })
-            
-            return formatted_data
-        except Exception as e:
-            logger.error(f"Error loading MMLU dataset for {category}: {e}")
-            return []
-    
-    def _load_cosmos_qa_dataset(self, sample_size: int) -> List[Dict]:
-        """Load and format CosmosQA dataset."""
-        try:
-            dataset = load_dataset("cosmos_qa")
-            
-            # Combine train and validation sets
-            combined_data = list(dataset['train']) + list(dataset['validation'])
-            
-            # Take random sample
-            import random
-            random.shuffle(combined_data)
-            combined_data = combined_data[:sample_size]
-            
-            # Convert to our standard format
-            formatted_data = []
-            for i, item in enumerate(combined_data):
-                formatted_data.append({
-                    'id': f"cosmos_qa_{i}",
-                    'question': item['question'],
-                    'context': item['context'],
-                    'choices': [item[f'answer{j}'] for j in range(4)],
-                    'choice_labels': ['A', 'B', 'C', 'D'],
-                    'answer': item['answer'],
-                    'category': 'reading_comprehension'
-                })
-            
-            return formatted_data
-        except Exception as e:
-            logger.error(f"Error loading CosmosQA dataset: {e}")
-            return []
-    
-    def _load_hellaswag_dataset(self, sample_size: int) -> List[Dict]:
-        """Load and format HellaSwag dataset."""
-        try:
-            dataset = load_dataset("hellaswag")
-            
-            # Combine train and validation sets
-            combined_data = list(dataset['train']) + list(dataset['validation'])
-            
-            # Take random sample
-            import random
-            random.shuffle(combined_data)
-            combined_data = combined_data[:sample_size]
-            
-            # Convert to our standard format
-            formatted_data = []
-            for i, item in enumerate(combined_data):
-                formatted_data.append({
-                    'id': f"hellaswag_{i}",
-                    'question': "What is the most likely continuation?",
-                    'context': item['ctx'],
-                    'choices': item['endings'],
-                    'choice_labels': ['A', 'B', 'C', 'D'],
-                    'answer': item['label'],
-                    'category': 'commonsense_inference'
-                })
-            
-            return formatted_data
-        except Exception as e:
-            logger.error(f"Error loading HellaSwag dataset: {e}")
-            return []
-    
-    def _load_halueval_dialogue_dataset(self, sample_size: int) -> List[Dict]:
-        """Load and format HaluEval dialogue dataset."""
-        try:
-            # Note: This is a placeholder as HaluEval might not be directly available in HF datasets
-            # You would need to implement the actual loading based on the dataset structure
-            
-            # For demonstration, we'll create a mock structure
-            formatted_data = []
-            for i in range(sample_size):
-                formatted_data.append({
-                    'id': f"halueval_dialogue_{i}",
-                    'question': "Which response is most appropriate?",
-                    'context': f"Sample dialogue history {i}",
-                    'choices': [f"Response option {j}" for j in range(4)],
-                    'choice_labels': ['A', 'B', 'C', 'D'],
-                    'answer': 'A',  # Mock answer
-                    'category': 'dialogue_response'
-                })
-            
-            return formatted_data
-        except Exception as e:
-            logger.error(f"Error loading HaluEval dialogue dataset: {e}")
-            return []
-    
-    def _load_halueval_summarization_dataset(self, sample_size: int) -> List[Dict]:
-        """Load and format HaluEval summarization dataset."""
-        try:
-            # Note: This is a placeholder as HaluEval might not be directly available in HF datasets
-            # You would need to implement the actual loading based on the dataset structure
-            
-            # For demonstration, we'll create a mock structure
-            formatted_data = []
-            for i in range(sample_size):
-                formatted_data.append({
-                    'id': f"halueval_summarization_{i}",
-                    'question': "Which summary best represents the document?",
-                    'context': f"Sample document text {i}",
-                    'choices': [f"Summary option {j}" for j in range(4)],
-                    'choice_labels': ['A', 'B', 'C', 'D'],
-                    'answer': 'A',  # Mock answer
-                    'category': 'document_summarization'
-                })
-            
-            return formatted_data
-        except Exception as e:
-            logger.error(f"Error loading HaluEval summarization dataset: {e}")
-            return []
+    # Dataset loading functions have been moved to dataset_utils.py
     
     def _prepare_demonstrations(self, task: str) -> List[Dict]:
         """Prepare demonstrations for a task from the calibration set."""
