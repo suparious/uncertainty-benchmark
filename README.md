@@ -101,6 +101,51 @@ python examples.py --api-base http://localhost:8000/v1 scale --family meta-llama
 python examples.py --api-base http://localhost:8000/v1 instruct --family meta-llama/Llama-2 --sizes 7b 13b
 ```
 
+### 1. Quick Testing
+
+For a simple verification that everything works, use `quick_test_fixed.py`:
+
+```bash
+python quick_test_fixed.py --api-base http://yourserver.example.com/v1 --model your-model-name
+```
+
+This will run a minimal test with just a few samples from the HellaSwag dataset.
+
+### 2. Small Sample Testing
+
+For a more comprehensive test but with smaller sample sizes (faster than full benchmark):
+
+```bash
+python examples_small.py --api-base http://yourserver.example.com/v1 --sample-size 100 single --model your-model-name
+```
+
+This will run the benchmark on all five tasks but with only 100 samples per task.
+
+### 3. Full Benchmark
+
+Once you've verified everything works, you can run the full benchmark:
+
+```bash
+python examples.py --api-base http://yourserver.example.com/v1 single --model your-model-name
+```
+
+## Common Issues and Solutions
+
+### 1. "Sample larger than population" error
+
+This happens when there aren't enough samples in a dataset for the required number of demonstrations. The fixed version now checks for this and provides a warning if there aren't enough samples.
+
+### 2. Answer format errors
+
+The original code assumed a specific answer format, but datasets may have different formats (integer indices, string labels, etc.). The fixed version now handles all common answer formats robustly.
+
+### 3. Memory issues with large datasets
+
+If you're experiencing memory issues with large datasets:
+- Try using `examples_small.py` with a smaller sample size
+- Modify the code to process datasets in chunks
+- Run one task at a time instead of all five together
+
 ## Understanding Results
 
 When analyzing the results, keep in mind:

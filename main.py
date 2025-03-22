@@ -205,7 +205,17 @@ class LLMUncertaintyBenchmark:
         answer_text = ""
         if is_demo:
             # For demonstrations, include the answer
-            answer_label = item['choice_labels'][int(item['answer'])] if isinstance(item['answer'], (int, str)) and item['answer'].isdigit() else item['answer']
+            # Handle different answer formats (int, str, etc.)
+            if isinstance(item['answer'], int):
+                # If it's already an integer index
+                answer_label = item['choice_labels'][item['answer']]
+            elif isinstance(item['answer'], str) and item['answer'].isdigit():
+                # If it's a string that represents a digit
+                answer_label = item['choice_labels'][int(item['answer'])]
+            else:
+                # Otherwise assume it's already the label
+                answer_label = item['answer']
+                
             answer_text = f"Answer: {answer_label}"
         else:
             # For test items, just have the prompt "Answer:"
@@ -505,13 +515,26 @@ class LLMUncertaintyBenchmark:
             
             # Get the index of the correct answer
             correct_idx = None
-            if isinstance(item['answer'], (int, str)) and item['answer'].isdigit():
-                correct_idx = int(item['answer'])
-            else:
-                for i, label in enumerate(item['choice_labels']):
-                    if label == item['answer']:
-                        correct_idx = i
-                        break
+            try:
+                if isinstance(item['answer'], int):
+                    # Direct integer index
+                    if 0 <= item['answer'] < len(item['choice_labels']):
+                        correct_idx = item['answer']
+                    else:
+                        logger.warning(f"Answer index out of range: {item['answer']}")
+                elif isinstance(item['answer'], str):
+                    if item['answer'] in item['choice_labels']:
+                        # If answer is already a label like 'A', 'B', etc.
+                        correct_idx = item['choice_labels'].index(item['answer'])
+                    elif item['answer'].isdigit():
+                        # If answer is a digit string
+                        idx = int(item['answer'])
+                        if 0 <= idx < len(item['choice_labels']):
+                            correct_idx = idx
+                        else:
+                            logger.warning(f"Answer string index out of range: {item['answer']}")
+            except Exception as e:
+                logger.warning(f"Error determining correct answer index: {e}")
             
             if correct_idx is None:
                 logger.warning(f"Could not determine correct answer index for item {item['id']}")
@@ -550,13 +573,26 @@ class LLMUncertaintyBenchmark:
             
             # Find the correct label
             correct_idx = None
-            if isinstance(item['answer'], (int, str)) and item['answer'].isdigit():
-                correct_idx = int(item['answer'])
-            else:
-                for i, label in enumerate(item['choice_labels']):
-                    if label == item['answer']:
-                        correct_idx = i
-                        break
+            try:
+                if isinstance(item['answer'], int):
+                    # Direct integer index
+                    if 0 <= item['answer'] < len(item['choice_labels']):
+                        correct_idx = item['answer']
+                    else:
+                        logger.warning(f"Answer index out of range: {item['answer']}")
+                elif isinstance(item['answer'], str):
+                    if item['answer'] in item['choice_labels']:
+                        # If answer is already a label like 'A', 'B', etc.
+                        correct_idx = item['choice_labels'].index(item['answer'])
+                    elif item['answer'].isdigit():
+                        # If answer is a digit string
+                        idx = int(item['answer'])
+                        if 0 <= idx < len(item['choice_labels']):
+                            correct_idx = idx
+                        else:
+                            logger.warning(f"Answer string index out of range: {item['answer']}")
+            except Exception as e:
+                logger.warning(f"Error determining correct answer index: {e}")
             
             if correct_idx is None:
                 logger.warning(f"Could not determine correct answer index for item {item['id']}")

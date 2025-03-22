@@ -137,13 +137,22 @@ def load_cosmos_qa_dataset(sample_size: int = 10000) -> List[Dict]:
         # Convert to our standard format
         formatted_data = []
         for i, item in enumerate(combined_data):
+            # Handle different label formats and convert to letter
+            label = item['label']
+            if isinstance(label, int) and 0 <= label < 4:
+                answer = ['A', 'B', 'C', 'D'][label]
+            else:
+                # Default to A if unknown label format
+                answer = 'A'
+                logger.warning(f"Unknown label format in CosmosQA: {label}, defaulting to A")
+            
             formatted_data.append({
                 'id': f"cosmos_qa_{i}",
                 'question': item['question'],
                 'context': item['context'],
                 'choices': [item[f'answer{j}'] for j in range(4)],
                 'choice_labels': ['A', 'B', 'C', 'D'],
-                'answer': ['A', 'B', 'C', 'D'][item['label']],  # Convert numeric label to letter
+                'answer': answer,
                 'category': 'reading_comprehension'
             })
         
@@ -179,13 +188,30 @@ def load_hellaswag_dataset(sample_size: int = 10000) -> List[Dict]:
         # Convert to our standard format
         formatted_data = []
         for i, item in enumerate(combined_data):
+            # Handle different label formats and convert to letter
+            label = item['label']
+            
+            try:
+                if isinstance(label, int) and 0 <= label < 4:
+                    answer = ['A', 'B', 'C', 'D'][label]
+                elif isinstance(label, str) and label.isdigit() and 0 <= int(label) < 4:
+                    answer = ['A', 'B', 'C', 'D'][int(label)]
+                elif isinstance(label, str) and label in ['A', 'B', 'C', 'D']:
+                    answer = label
+                else:
+                    answer = 'A'  # Default
+                    logger.warning(f"Unknown label format in HellaSwag: {label}, defaulting to A")
+            except Exception as e:
+                answer = 'A'  # Default on error
+                logger.warning(f"Error converting label in HellaSwag: {label}, {e}, defaulting to A")
+            
             formatted_data.append({
                 'id': f"hellaswag_{i}",
                 'question': "What is the most likely continuation?",
                 'context': item['ctx'],
                 'choices': item['endings'],
                 'choice_labels': ['A', 'B', 'C', 'D'],
-                'answer': ['A', 'B', 'C', 'D'][int(item['label'])],  # Convert numeric label to letter
+                'answer': answer,
                 'category': 'commonsense_inference'
             })
         

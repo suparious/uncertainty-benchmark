@@ -6,6 +6,8 @@
 - ✅ Fixed the MMLU dataset loading to properly handle categories
 - ✅ Updated `main.py` to use the new dataset utilities
 - ✅ Added a simplified `quick_test_fixed.py` for basic verification
+- ✅ Fixed handling of different answer formats for robust error handling
+- ✅ Created `examples_small.py` for testing with smaller sample sizes
 
 ## Pending Refinements
 
