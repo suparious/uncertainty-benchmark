@@ -38,6 +38,11 @@ The benchmark provides three key metrics for each model:
 git clone https://github.com/yourusername/llm-uncertainty-benchmark.git
 cd llm-uncertainty-benchmark
 
+# Optionally create a virtualenv to isolate dependencies
+mkdir -p ~/venvs
+python -m venv ~/venvs/uncertainty-benchmark
+source  ~/venvs/uncertainty-benchmark/bin/activate
+
 # Install required packages
 pip install -r requirements.txt
 ```
