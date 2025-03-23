@@ -17,7 +17,10 @@ venv/
 OPENER.md
 CUSTOM_INSTRUCTIONS.md
 
-# benchmark results
+# benchmarking outputs
+_tasks.*/
+_tasks/
+analysis_results/
 benchmark_results/
 benchmark.log
 
