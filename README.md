@@ -123,15 +123,15 @@ For more detailed documentation, please refer to the docstrings in the code and 
 
 If you use this framework in your research, please cite the original paper:
 
-```
-@article{LLMUncertaintyBenchmark,
+```bibtex
+@article{ye2024llm_uq,
   title={Benchmarking LLMs via Uncertainty Quantification},
-  author={Paper authors},
-  journal={arXiv preprint},
-  year={2023}
-}
+  author={Ye, Fanghua and Yang MingMing and Pang, Jianhui and Wang, Longyue and Wong, Derek F and Yilmaz Emine and Shi, Shuming and Tu, Zhaopeng},
+  journal={arXiv preprint arXiv:2401.12794},
+  year={2024}
+  }
 ```
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
