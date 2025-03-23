@@ -30,6 +30,7 @@ The benchmark provides three key metrics for each model:
 - Multiple prompting strategies for robust evaluation
 - Comprehensive reporting and visualization tools
 - Analysis capabilities for model scaling and instruction tuning effects
+- **NEW: Parallel processing for high-throughput evaluation**
 
 ## Installation
 
@@ -45,6 +46,11 @@ source  ~/venvs/uncertainty-benchmark/bin/activate
 
 # Install required packages
 pip install -r requirements.txt
+```
+
+The parallel implementation requires additional dependencies:
+```bash
+pip install aiohttp
 ```
 
 ## Usage
@@ -85,7 +91,9 @@ benchmark.save_results("./results/llama-2-13b")
 
 ### Command-line Interface
 
-The package also provides a command-line interface for common benchmarking scenarios (using the [setup_vllm_server.sh](./setup_vllm_server.sh) example):
+The package provides several command-line interfaces for common benchmarking scenarios:
+
+#### Standard Sequential Benchmarking
 
 ```bash
 # Benchmark a single model
@@ -101,9 +109,43 @@ python examples.py --api-base http://localhost:8000/v1 scale --family meta-llama
 python examples.py --api-base http://localhost:8000/v1 instruct --family meta-llama/Llama-2 --sizes 7b 13b
 ```
 
-### 1. Quick Testing
+#### High-Performance Parallel Benchmarking (NEW)
 
-For a simple verification that everything works, use `quick_test.py`:
+For faster evaluation using parallel processing:
+
+```bash
+# Benchmark a single model with parallel processing
+python examples_parallel.py --api-base http://localhost:8000/v1 \
+  --batch-size 20 --max-workers 8 \
+  single --model meta-llama/Llama-2-13b-hf
+
+# Compare multiple models with parallel processing
+python examples_parallel.py --api-base http://localhost:8000/v1 \
+  --batch-size 20 --max-workers 8 \
+  compare --models meta-llama/Llama-2-7b-hf meta-llama/Llama-2-13b-hf
+  
+# Use thread-based parallelism instead of async (if needed)
+python examples_parallel.py --api-base http://localhost:8000/v1 \
+  --batch-size 20 --max-workers 8 --use-threads \
+  single --model meta-llama/Llama-2-13b-hf
+  
+# Reduce sample size for faster testing
+python examples_parallel.py --api-base http://localhost:8000/v1 \
+  --batch-size 20 --max-workers 8 --sample-size 1000 \
+  single --model meta-llama/Llama-2-13b-hf
+```
+
+The parallel implementation provides significant speedups by:
+- Processing multiple samples in parallel using batched API requests
+- Parallelizing across different tasks and prompt strategies
+- Using either async I/O or thread-based concurrency
+- Providing configurable batch sizes and worker counts
+
+### Testing Options
+
+#### 1. Quick Testing
+
+For a simple verification that everything works:
 
 ```bash
 python quick_test.py --api-base http://yourserver.example.com/v1 --model your-model-name
@@ -111,9 +153,9 @@ python quick_test.py --api-base http://yourserver.example.com/v1 --model your-mo
 
 This will run a minimal test with just a few samples from the HellaSwag dataset.
 
-### 2. Small Sample Testing
+#### 2. Small Sample Testing
 
-For a more comprehensive test but with smaller sample sizes (faster than full benchmark):
+For a more comprehensive test but with smaller sample sizes:
 
 ```bash
 python examples_small.py --api-base http://yourserver.example.com/v1 --sample-size 100 single --model your-model-name
@@ -121,12 +163,54 @@ python examples_small.py --api-base http://yourserver.example.com/v1 --sample-si
 
 This will run the benchmark on all five tasks but with only 100 samples per task.
 
-### 3. Full Benchmark
+#### 3. Full Benchmark
 
 Once you've verified everything works, you can run the full benchmark:
 
 ```bash
+# Sequential version (slower but uses less resources)
 python examples.py --api-base http://yourserver.example.com/v1 single --model your-model-name
+
+# Parallel version (faster, uses more resources)
+python examples_parallel.py --api-base http://yourserver.example.com/v1 \
+  --batch-size 20 --max-workers 8 \
+  single --model your-model-name
+```
+
+## Optimizing Performance
+
+The parallel implementation allows you to tune the benchmarking performance:
+
+### Batch Size
+Controls how many samples are processed in a single batch:
+- Higher values increase throughput but use more memory
+- Recommended range: 10-50 (depending on your hardware)
+
+### Worker Count
+Controls how many parallel workers are used:
+- Higher values allow more concurrent API requests
+- Should not exceed your API endpoint's capacity
+- Recommended range: 4-16 (depending on your server)
+
+### Async vs Threads
+Two parallelization models are available:
+- **Async I/O** (default): Better for I/O-bound operations like API calls
+- **Thread-based**: May work better in some environments
+
+### Example Configurations
+
+For a powerful server with good network connection:
+```bash
+python examples_parallel.py --api-base http://yourserver.example.com/v1 \
+  --batch-size 50 --max-workers 16 \
+  single --model your-model-name
+```
+
+For a more modest setup:
+```bash
+python examples_parallel.py --api-base http://yourserver.example.com/v1 \
+  --batch-size 10 --max-workers 4 \
+  single --model your-model-name
 ```
 
 ## Common Issues and Solutions
@@ -145,6 +229,13 @@ If you're experiencing memory issues with large datasets:
 - Try using `examples_small.py` with a smaller sample size
 - Modify the code to process datasets in chunks
 - Run one task at a time instead of all five together
+
+### 4. API rate limiting with parallel requests
+
+If you encounter rate limiting issues:
+- Reduce the number of workers (`--max-workers`)
+- Increase the delay between requests
+- Use thread-based parallelism (`--use-threads`) which may behave better with some APIs
 
 ## Understanding Results
 
@@ -174,6 +265,7 @@ The framework requires:
    - tqdm
    - datasets
    - torch
+   - aiohttp (for parallel async processing)
 
 ## Citation
 
