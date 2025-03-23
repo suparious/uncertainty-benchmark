@@ -12,3 +12,7 @@ venv/
 # AI prompts
 OPENER.md
 CUSTOM_INSTRUCTIONS.md
+
+# benchmark results
+benchmark_results/
+

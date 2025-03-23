@@ -811,7 +811,16 @@ class LLMUncertaintyBenchmark:
         plt.tight_layout()
         
         if output_file:
-            task_output = output_file.replace('.', '_tasks.')
+            # Ensure the output directory exists
+            output_dir = os.path.dirname(output_file)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+                
+            # Create a properly named file for task visualizations
+            task_output = os.path.join(
+                output_dir,
+                os.path.basename(output_file).replace('.', '_tasks.')
+            )
             plt.savefig(task_output, dpi=300, bbox_inches='tight')
             logger.info(f"Task-specific visualization saved to {task_output}")
         else:
