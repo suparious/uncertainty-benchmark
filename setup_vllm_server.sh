@@ -1,42 +1,214 @@
 #!/bin/bash
-# Setup a vLLM-OpenAI compatible server for benchmarking
+# Setup an optimized vLLM-OpenAI compatible server for LLM uncertainty benchmarking
+set -e  # Exit on error
+
+# Display help information
+function show_help {
+  echo "Usage: $0 [OPTIONS] <model_name>"
+  echo ""
+  echo "Setup an optimized vLLM server with OpenAI-compatible API for LLM benchmarking."
+  echo ""
+  echo "Options:"
+  echo "  -g, --gpus GPUS            GPU IDs to use (comma-separated, default: 0)"
+  echo "  -p, --port PORT            Port to serve the API (default: 8000)"
+  echo "  -m, --max-model-len LEN    Maximum sequence length (default: 2048)"
+  echo "  -b, --batch-size SIZE      Batch size for inference (default: 32)"
+  echo "  -w, --workers NUM          Number of worker processes (default: 1)"
+  echo "  -q, --quantize TYPE        Quantization type (awq, gptq, none; default: none)"
+  echo "  -c, --enable-chat          Enable chat completions endpoint"
+  echo "  -t, --trust-remote-code    Trust remote code when loading models"
+  echo "  -u, --gpu-util FRACTION    GPU memory utilization (0.0-1.0, default: 0.9)"
+  echo "  -s, --swap-space SIZE      CPU swap space in GiB (default: 4)"
+  echo "  -d, --dtype TYPE           Model data type (float16, bfloat16, default: bfloat16)"
+  echo "  -l, --logprobs NUM         Return top N logprobs for token predictions (default: 10)"
+  echo "  -e, --env-path PATH        Path to virtual environment (default: ./venv)"
+  echo "  -h, --help                 Display this help message"
+  echo ""
+  echo "Example: $0 -g 0,1 -p 8080 -q awq -m 4096 meta-llama/Llama-3-8b-instruct"
+  exit 0
+}
+
+# Default values
+GPU_IDS="0"
+PORT=8000
+MAX_MODEL_LEN=2048
+BATCH_SIZE=32
+WORKERS=1
+QUANTIZE="none"
+ENABLE_CHAT=false
+TRUST_REMOTE_CODE=false
+GPU_UTIL=0.9
+SWAP_SPACE=4
+DTYPE="bfloat16"
+LOGPROBS=10
+ENV_PATH="./venv"
+EXTRA_ARGS=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -g|--gpus)
+      GPU_IDS="$2"
+      shift 2
+      ;;
+    -p|--port)
+      PORT="$2"
+      shift 2
+      ;;
+    -m|--max-model-len)
+      MAX_MODEL_LEN="$2"
+      shift 2
+      ;;
+    -b|--batch-size)
+      BATCH_SIZE="$2"
+      shift 2
+      ;;
+    -w|--workers)
+      WORKERS="$2"
+      shift 2
+      ;;
+    -q|--quantize)
+      QUANTIZE="$2"
+      shift 2
+      ;;
+    -c|--enable-chat)
+      ENABLE_CHAT=true
+      shift
+      ;;
+    -t|--trust-remote-code)
+      TRUST_REMOTE_CODE=true
+      shift
+      ;;
+    -u|--gpu-util)
+      GPU_UTIL="$2"
+      shift 2
+      ;;
+    -s|--swap-space)
+      SWAP_SPACE="$2"
+      shift 2
+      ;;
+    -d|--dtype)
+      DTYPE="$2"
+      shift 2
+      ;;
+    -l|--logprobs)
+      LOGPROBS="$2"
+      shift 2
+      ;;
+    -e|--env-path)
+      ENV_PATH="$2"
+      shift 2
+      ;;
+    -h|--help)
+      show_help
+      ;;
+    -*)
+      echo "Unknown option: $1"
+      echo "Run '$0 --help' for usage information."
+      exit 1
+      ;;
+    *)
+      if [[ -z "$MODEL_NAME" ]]; then
+        MODEL_NAME="$1"
+      else
+        echo "Unexpected argument: $1"
+        echo "Run '$0 --help' for usage information."
+        exit 1
+      fi
+      shift
+      ;;
+  esac
+done
 
 # Check if model name is provided
-if [ $# -lt 1 ]; then
-  echo "Usage: $0 <model_name> [gpu_ids]"
-  echo "Example: $0 meta-llama/Llama-2-13b-hf 0,1"
+if [[ -z "$MODEL_NAME" ]]; then
+  echo "Error: Model name is required."
+  echo "Run '$0 --help' for usage information."
   exit 1
 fi
 
-MODEL_NAME=$1
-GPU_IDS=${2:-"0"}  # Default to GPU 0 if not specified
-PORT=8000
+# Calculate number of GPUs for tensor parallelism
+NUM_GPUS=$(echo $GPU_IDS | tr ',' '\n' | wc -l)
+
+# Build extra arguments
+if [[ "$QUANTIZE" != "none" ]]; then
+  EXTRA_ARGS+=" --quantization $QUANTIZE"
+fi
+
+if [[ "$TRUST_REMOTE_CODE" == "true" ]]; then
+  EXTRA_ARGS+=" --trust-remote-code"
+fi
+
+if [[ "$ENABLE_CHAT" == "true" ]]; then
+  EXTRA_ARGS+=" --chat-template chatml"
+fi
+
+# Print configuration
+echo "=============================================="
+echo "vLLM Server Configuration"
+echo "=============================================="
+echo "Model:                  $MODEL_NAME"
+echo "GPUs:                   $GPU_IDS ($NUM_GPUS GPUs)"
+echo "Port:                   $PORT"
+echo "Max sequence length:    $MAX_MODEL_LEN"
+echo "Batch size:             $BATCH_SIZE"
+echo "Workers:                $WORKERS"
+echo "Quantization:           $QUANTIZE"
+echo "Data type:              $DTYPE"
+echo "Chat mode:              $ENABLE_CHAT"
+echo "Trust remote code:      $TRUST_REMOTE_CODE"
+echo "GPU memory utilization: $GPU_UTIL"
+echo "CPU swap space:         $SWAP_SPACE GiB"
+echo "LogProbs:               $LOGPROBS"
+echo "Virtual env path:       $ENV_PATH"
+echo "=============================================="
 
 # Create a Python virtual environment if it doesn't exist
-if [ ! -d "venv" ]; then
-  echo "Creating Python virtual environment..."
-  python -m venv venv
+if [ ! -d "$ENV_PATH" ]; then
+  echo "Creating Python virtual environment at $ENV_PATH..."
+  python -m venv "$ENV_PATH"
 fi
 
 # Activate the virtual environment
-source venv/bin/activate
+source "$ENV_PATH/bin/activate"
 
 # Install vLLM
 echo "Installing vLLM and dependencies..."
-pip install vllm
+pip install --upgrade pip
+pip install "vllm>=0.3.0" "fschat>=0.2.30"
+
+# Configure CUDA for better performance
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+export NCCL_P2P_DISABLE=1  # Try disabling NCCL P2P for better multi-GPU performance
+export CUDA_VISIBLE_DEVICES=$GPU_IDS
+export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 
 # Start the vLLM OpenAI-compatible server
-echo "Starting vLLM server for model: $MODEL_NAME on GPUs: $GPU_IDS"
+echo ""
+echo "Starting optimized vLLM server for model: $MODEL_NAME"
 echo "Server will be available at http://localhost:$PORT/v1"
 echo "Press Ctrl+C to stop the server"
+echo ""
 
+# Run the server with optimized settings
 python -m vllm.entrypoints.openai.api_server \
-  --model $MODEL_NAME \
-  --gpu-memory-utilization 0.9 \
-  --tensor-parallel-size $(echo $GPU_IDS | tr ',' '\n' | wc -l) \
-  --dtype bfloat16 \
-  --gpu $GPU_IDS \
-  --port $PORT
+  --model "$MODEL_NAME" \
+  --gpu-memory-utilization $GPU_UTIL \
+  --tensor-parallel-size $NUM_GPUS \
+  --dtype $DTYPE \
+  --max-model-len $MAX_MODEL_LEN \
+  --served-model-name "$(basename $MODEL_NAME)" \
+  --port $PORT \
+  --worker-use-ray \
+  --logprobs $LOGPROBS \
+  --swap-space $SWAP_SPACE \
+  --max-num-batched-tokens $((MAX_MODEL_LEN * BATCH_SIZE)) \
+  --max-num-seqs $BATCH_SIZE \
+  --max-paddings 256 \
+  --enforce-eager \
+  --disable-log-stats \
+  --enable-prompt-truncation \
+  $EXTRA_ARGS
 
 # Deactivate the virtual environment when done
 deactivate
