@@ -1,25 +1,23 @@
 """
-Utilities for parallel processing in the LLM Uncertainty Benchmark.
-This module provides functionality for making concurrent API requests
-and processing batches of samples in parallel.
+Parallel processing utilities for LLM Uncertainty Benchmarking.
 """
 
 import asyncio
 import aiohttp
+import json
+import time
 import logging
 import numpy as np
-import time
-import json
+import requests
 from typing import List, Dict, Any, Callable, Optional, Union, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm.asyncio import tqdm as async_tqdm
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+from .logging import get_logger
+from .api import softmax
+
+logger = get_logger(__name__)
+
 
 class ParallelProcessor:
     """
@@ -209,7 +207,7 @@ class ParallelProcessor:
                 
                 if logits:
                     # Apply softmax to get probabilities
-                    softmax_probs = self._softmax(logits)
+                    softmax_probs = softmax(logits)
                     
                     # Store processed sample
                     processed_batch.append({
@@ -285,74 +283,98 @@ class ParallelProcessor:
                     delay = self.retry_delay * (2 ** (attempt - 1))
                     await asyncio.sleep(delay)
                 
-                async with session.post(
-                    f"{self.api_base_url}/completions",
-                    headers=headers,
-                    json=data,
-                    timeout=self.timeout
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.warning(f"HTTP Error {response.status} for sample {sample_id} (attempt {attempt+1}/{self.max_retries}): {error_text}")
-                        continue
+                # Handle API URLs that might or might not end with a slash
+                base_url = self.api_base_url.rstrip('/')
+                
+                # First try with standard completions endpoint
+                try:
+                    async with session.post(
+                        f"{base_url}/completions",
+                        headers=headers,
+                        json=data,
+                        timeout=self.timeout
+                    ) as response:
+                        if response.status != 200:
+                            error_text = await response.text()
+                            logger.warning(f"HTTP Error {response.status} for sample {sample_id} (attempt {attempt+1}/{self.max_retries}): {error_text}")
+                            continue
                         
-                    result = await response.json()
-                    
-                    # Check response structure
-                    if "choices" not in result or not result["choices"]:
-                        logger.warning(f"Invalid response structure (no choices) for sample {sample_id} (attempt {attempt+1}/{self.max_retries})")
-                        continue
-                    
-                    # Extract logits/logprobs for options A-F
-                    option_logits = []
+                        result = await response.json()
+                except aiohttp.ClientError as e:
+                    # If first attempt fails, try with chat/completions endpoint
+                    logger.warning(f"Error with standard completions endpoint: {e}, trying chat/completions endpoint")
                     try:
-                        if not use_chat_template:
-                            if "logprobs" not in result["choices"][0] or "top_logprobs" not in result["choices"][0]["logprobs"] or not result["choices"][0]["logprobs"]["top_logprobs"]:
-                                logger.warning(f"Invalid logprobs structure for sample {sample_id} (attempt {attempt+1}/{self.max_retries})")
+                        async with session.post(
+                            f"{base_url}/chat/completions",
+                            headers=headers,
+                            json=data,
+                            timeout=self.timeout
+                        ) as response:
+                            if response.status != 200:
+                                error_text = await response.text()
+                                logger.warning(f"HTTP Error {response.status} for sample {sample_id} (attempt {attempt+1}/{self.max_retries}): {error_text}")
                                 continue
-                                
-                            logprobs = result["choices"][0]["logprobs"]["top_logprobs"][0]
                             
-                            # Extract logits for A, B, C, D, E, F
-                            for option in ["A", "B", "C", "D", "E", "F"]:
-                                if option in logprobs:
-                                    option_logits.append(logprobs[option])
-                                else:
-                                    # If option not in top logprobs, use a very low value
-                                    option_logits.append(-100.0)
-                        else:
-                            # Logic for chat models
-                            if "logprobs" not in result["choices"][0] or "content" not in result["choices"][0]["logprobs"] or not result["choices"][0]["logprobs"]["content"]:
-                                logger.warning(f"Invalid chat logprobs structure for sample {sample_id} (attempt {attempt+1}/{self.max_retries})")
-                                continue
-                                
-                            content_logprobs = result["choices"][0]["logprobs"]["content"]
-                            if not content_logprobs or "top_logprobs" not in content_logprobs[0]:
-                                logger.warning(f"Missing content logprobs for sample {sample_id} (attempt {attempt+1}/{self.max_retries})")
-                                continue
-                                
-                            logprobs = content_logprobs[0]["top_logprobs"]
+                            result = await response.json()
+                    except aiohttp.ClientError as e:
+                        logger.warning(f"Error with chat/completions endpoint: {e}")
+                        continue
+                
+                # Check response structure
+                if "choices" not in result or not result["choices"]:
+                    logger.warning(f"Invalid response structure (no choices) for sample {sample_id} (attempt {attempt+1}/{self.max_retries})")
+                    continue
+                    
+                # Extract logits/logprobs for options A-F
+                option_logits = []
+                try:
+                    if not use_chat_template:
+                        if "logprobs" not in result["choices"][0] or "top_logprobs" not in result["choices"][0]["logprobs"] or not result["choices"][0]["logprobs"]["top_logprobs"]:
+                            logger.warning(f"Invalid logprobs structure for sample {sample_id} (attempt {attempt+1}/{self.max_retries})")
+                            continue
                             
-                            for option in ["A", "B", "C", "D", "E", "F"]:
-                                logprob_found = False
-                                for lp in logprobs:
-                                    if "token" in lp and lp["token"] == option and "logprob" in lp:
-                                        option_logits.append(lp["logprob"])
-                                        logprob_found = True
-                                        break
-                                
-                                if not logprob_found:
-                                    option_logits.append(-100.0)
-                    except Exception as e:
-                        logger.warning(f"Error extracting logprobs for sample {sample_id} (attempt {attempt+1}/{self.max_retries}): {str(e)}")
-                        continue
-                    
-                    # Check if we have all 6 logits
-                    if len(option_logits) != 6:
-                        logger.warning(f"Incomplete logits ({len(option_logits)}/6) for sample {sample_id} (attempt {attempt+1}/{self.max_retries})")
-                        continue
-                    
-                    return option_logits
+                        logprobs = result["choices"][0]["logprobs"]["top_logprobs"][0]
+                        
+                        # Extract logits for A, B, C, D, E, F
+                        for option in ["A", "B", "C", "D", "E", "F"]:
+                            if option in logprobs:
+                                option_logits.append(logprobs[option])
+                            else:
+                                # If option not in top logprobs, use a very low value
+                                option_logits.append(-100.0)
+                    else:
+                        # Logic for chat models
+                        if "logprobs" not in result["choices"][0] or "content" not in result["choices"][0]["logprobs"] or not result["choices"][0]["logprobs"]["content"]:
+                            logger.warning(f"Invalid chat logprobs structure for sample {sample_id} (attempt {attempt+1}/{self.max_retries})")
+                            continue
+                            
+                        content_logprobs = result["choices"][0]["logprobs"]["content"]
+                        if not content_logprobs or "top_logprobs" not in content_logprobs[0]:
+                            logger.warning(f"Missing content logprobs for sample {sample_id} (attempt {attempt+1}/{self.max_retries})")
+                            continue
+                            
+                        logprobs = content_logprobs[0]["top_logprobs"]
+                        
+                        for option in ["A", "B", "C", "D", "E", "F"]:
+                            logprob_found = False
+                            for lp in logprobs:
+                                if "token" in lp and lp["token"] == option and "logprob" in lp:
+                                    option_logits.append(lp["logprob"])
+                                    logprob_found = True
+                                    break
+                            
+                            if not logprob_found:
+                                option_logits.append(-100.0)
+                except Exception as e:
+                    logger.warning(f"Error extracting logprobs for sample {sample_id} (attempt {attempt+1}/{self.max_retries}): {str(e)}")
+                    continue
+                
+                # Check if we have all 6 logits
+                if len(option_logits) != 6:
+                    logger.warning(f"Incomplete logits ({len(option_logits)}/6) for sample {sample_id} (attempt {attempt+1}/{self.max_retries})")
+                    continue
+                
+                return option_logits
                 
             except aiohttp.ClientError as e:
                 logger.warning(f"Client error for sample {sample_id} (attempt {attempt+1}/{self.max_retries}): {str(e)}")
@@ -366,22 +388,6 @@ class ParallelProcessor:
         # All attempts failed
         logger.error(f"Error getting logits from API after {self.max_retries} attempts for sample {sample_id}")
         return None
-    
-    def _softmax(self, logits: List[float]) -> List[float]:
-        """Apply softmax to logits safely."""
-        try:
-            # Shift values for numerical stability
-            shifted_logits = [x - max(logits) for x in logits]
-            exp_logits = [np.exp(x) for x in shifted_logits]
-            sum_exp_logits = sum(exp_logits)
-            if sum_exp_logits == 0:
-                # Handle degenerate case
-                return [1.0/len(logits)] * len(logits)
-            return [x / sum_exp_logits for x in exp_logits]
-        except Exception as e:
-            logger.error(f"Error in softmax calculation: {str(e)}")
-            # Return uniform distribution as fallback
-            return [1.0/len(logits)] * len(logits)
 
 
 class ThreadedProcessor:
@@ -502,7 +508,22 @@ class ThreadedProcessor:
         Returns:
             List of processed samples
         """
+        import requests
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+        
         processed_batch = []
+        
+        # Create a session with retry capabilities
+        session = requests.Session()
+        retries = Retry(
+            total=0,  # We'll handle retries manually
+            backoff_factor=0.5,
+            status_forcelist=[500, 502, 503, 504]
+        )
+        adapter = HTTPAdapter(max_retries=retries)
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
         
         for i, sample in enumerate(batch):
             try:
@@ -511,11 +532,17 @@ class ThreadedProcessor:
                 
                 # Get logits
                 sample_id = sample.get('id', f"batch_{batch_idx}_item_{i}")
-                logits = self._get_logits(model_name, prompt, use_chat_template, sample_id)
+                logits = self._get_logits(
+                    session,
+                    model_name, 
+                    prompt, 
+                    use_chat_template, 
+                    sample_id
+                )
                 
                 if logits:
                     # Apply softmax to get probabilities
-                    softmax_probs = self._softmax(logits)
+                    softmax_probs = softmax(logits)
                     
                     # Store processed sample
                     processed_batch.append({
@@ -529,7 +556,8 @@ class ThreadedProcessor:
         return processed_batch
     
     def _get_logits(
-        self, 
+        self,
+        session: requests.Session,
         model_name: str, 
         prompt: str, 
         use_chat_template: bool,
@@ -539,6 +567,7 @@ class ThreadedProcessor:
         Get logits from the API with retries.
         
         Args:
+            session: Requests session
             model_name: Name of the model
             prompt: The formatted prompt
             use_chat_template: Whether to use chat template
@@ -547,21 +576,6 @@ class ThreadedProcessor:
         Returns:
             List of logits for the options A-F or None if all attempts failed
         """
-        import requests
-        from requests.adapters import HTTPAdapter
-        from urllib3.util.retry import Retry
-        
-        # Create a session with retry capabilities
-        session = requests.Session()
-        retries = Retry(
-            total=0,  # We'll handle retries manually
-            backoff_factor=0.5,
-            status_forcelist=[500, 502, 503, 504]
-        )
-        adapter = HTTPAdapter(max_retries=retries)
-        session.mount('http://', adapter)
-        session.mount('https://', adapter)
-        
         headers = {
             "Content-Type": "application/json"
         }
@@ -600,12 +614,32 @@ class ThreadedProcessor:
                     delay = self.retry_delay * (2 ** (attempt - 1))
                     time.sleep(delay)
                 
-                response = session.post(
-                    f"{self.api_base_url}/completions",
-                    headers=headers,
-                    json=data,
-                    timeout=self.timeout
-                )
+                # Handle API URLs that might or might not end with a slash
+                base_url = self.api_base_url.rstrip('/')
+                
+                # Try first with completions endpoint
+                try:
+                    response = session.post(
+                        f"{base_url}/completions",
+                        headers=headers,
+                        json=data,
+                        timeout=self.timeout
+                    )
+                    response.raise_for_status()
+                except requests.RequestException as e:
+                    # If first attempt fails, try with chat/completions endpoint
+                    logger.warning(f"Error with standard completions endpoint: {e}, trying chat/completions endpoint")
+                    try:
+                        response = session.post(
+                            f"{base_url}/chat/completions", 
+                            headers=headers,
+                            json=data,
+                            timeout=self.timeout
+                        )
+                        response.raise_for_status()
+                    except requests.RequestException as e:
+                        logger.warning(f"Both completions endpoints failed: {e}")
+                        continue
                 
                 if response.status_code != 200:
                     logger.warning(f"HTTP Error {response.status_code} for sample {sample_id} (attempt {attempt+1}/{self.max_retries}): {response.text}")
@@ -679,22 +713,6 @@ class ThreadedProcessor:
         # All attempts failed
         logger.error(f"Error getting logits from API after {self.max_retries} attempts for sample {sample_id}")
         return None
-    
-    def _softmax(self, logits: List[float]) -> List[float]:
-        """Apply softmax to logits safely."""
-        try:
-            # Shift values for numerical stability
-            shifted_logits = [x - max(logits) for x in logits]
-            exp_logits = [np.exp(x) for x in shifted_logits]
-            sum_exp_logits = sum(exp_logits)
-            if sum_exp_logits == 0:
-                # Handle degenerate case
-                return [1.0/len(logits)] * len(logits)
-            return [x / sum_exp_logits for x in exp_logits]
-        except Exception as e:
-            logger.error(f"Error in softmax calculation: {str(e)}")
-            # Return uniform distribution as fallback
-            return [1.0/len(logits)] * len(logits)
 
 
 def parallel_map(

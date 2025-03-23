@@ -6,6 +6,10 @@ __pycache__/
 *.pyw
 *.pyz
 
+# python
+*.egg-info
+*.dist-info
+
 # venv
 venv/
 
@@ -16,3 +20,6 @@ CUSTOM_INSTRUCTIONS.md
 # benchmark results
 benchmark_results/
 benchmark.log
+
+# workspace
+archive/

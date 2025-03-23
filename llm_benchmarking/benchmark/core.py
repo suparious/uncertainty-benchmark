@@ -1,30 +1,31 @@
+"""
+Core benchmark module for LLM Uncertainty Benchmarking.
+"""
+
 import os
 import json
+import random
 import numpy as np
 import pandas as pd
-import requests
-import logging
-from typing import List, Dict, Tuple, Any, Optional, Union
 from tqdm import tqdm
-import torch
+from typing import List, Dict, Any, Optional, Union, Tuple
 
-# Import dataset utilities
-from dataset_utils import (
+from ..utils.logging import get_logger
+from ..utils.api import get_logits_from_api, softmax
+from ..datasets import (
     load_mmlu_dataset,
     load_cosmos_qa_dataset,
     load_hellaswag_dataset,
     load_halueval_dialogue_dataset,
     load_halueval_summarization_dataset
 )
+from ..prompting import PromptFormatter
+from .metrics import calculate_metrics_with_conformal_prediction, calculate_average_metrics
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
-class LLMUncertaintyBenchmark:
+
+class LLMBenchmark:
     """
     A benchmarking framework for evaluating LLMs via uncertainty quantification
     based on the paper "Benchmarking LLMs via Uncertainty Quantification".
@@ -56,6 +57,7 @@ class LLMUncertaintyBenchmark:
         self.error_rate = error_rate
         self.max_tokens = max_tokens
         
+        # Set default demonstrations if not provided
         if num_demonstrations is None:
             self.num_demonstrations = {
                 "qa": 5,
@@ -81,6 +83,9 @@ class LLMUncertaintyBenchmark:
         self.demonstrations = {}
         self.results = {}
         
+        # Initialize prompt formatter
+        self.prompt_formatter = PromptFormatter()
+    
     def prepare_datasets(self, tasks: List[str] = None, sample_size: int = 10000):
         """
         Prepare datasets for benchmarking.
@@ -151,12 +156,17 @@ class LLMUncertaintyBenchmark:
             logger.info(f"Prepared {len(dataset)} samples for {task} task "
                        f"({len(calibration_set)} for calibration, {len(test_set)} for testing)")
     
-    # Dataset loading functions have been moved to dataset_utils.py
-    
     def _prepare_demonstrations(self, task: str) -> List[Dict]:
-        """Prepare demonstrations for a task from the calibration set."""
+        """
+        Prepare demonstrations for a task from the calibration set.
+        
+        Args:
+            task: Task name
+            
+        Returns:
+            List of demonstration examples
+        """
         calibration_set = self.datasets[task]['calibration']
-        import random
         
         # Select random samples for demonstrations
         demo_samples = random.sample(calibration_set, self.num_demonstrations[task])
@@ -165,7 +175,7 @@ class LLMUncertaintyBenchmark:
     
     def format_prompt(self, task: str, item: Dict, prompt_strategy: str) -> str:
         """
-        Format prompt for a task based on the specified prompting strategy.
+        Format a prompt for a task based on the specified prompting strategy.
         
         Args:
             task: Task name
@@ -175,94 +185,23 @@ class LLMUncertaintyBenchmark:
         Returns:
             Formatted prompt
         """
-        # Prepare demonstrations
-        demos_text = ""
+        # Check if we have demonstrations for this task
         if task in self.demonstrations and self.demonstrations[task]:
-            for demo in self.demonstrations[task]:
-                demo_prompt = self._format_single_prompt(task, demo, prompt_strategy, is_demo=True)
-                demos_text += f"{demo_prompt}\n\n"
-        
-        # Format the current item
-        item_prompt = self._format_single_prompt(task, item, prompt_strategy, is_demo=False)
-        
-        # Combine demonstrations and current item
-        prompt = f"{demos_text}{item_prompt}"
-        
-        return prompt
-    
-    def _format_single_prompt(self, task: str, item: Dict, prompt_strategy: str, is_demo: bool) -> str:
-        """Format a single prompt for a task item."""
-        context_type = "Context" if task in ["rc", "ci"] else "Dialogue" if task == "drs" else "Document" if task == "ds" else None
-        
-        context_text = ""
-        if context_type and item['context']:
-            context_text = f"{context_type}: {item['context']}\n"
-        
-        choices_text = "Choices:\n"
-        for label, choice in zip(item['choice_labels'], item['choices']):
-            choices_text += f"{label}. {choice}\n"
-        
-        answer_text = ""
-        if is_demo:
-            # For demonstrations, include the answer
-            # Handle different answer formats (int, str, etc.)
-            if isinstance(item['answer'], int):
-                # If it's already an integer index
-                answer_label = item['choice_labels'][item['answer']]
-            elif isinstance(item['answer'], str) and item['answer'].isdigit():
-                # If it's a string that represents a digit
-                answer_label = item['choice_labels'][int(item['answer'])]
-            else:
-                # Otherwise assume it's already the label
-                answer_label = item['answer']
-                
-            answer_text = f"Answer: {answer_label}"
+            # Use formatter with demonstrations
+            return self.prompt_formatter.format_with_demonstrations(
+                item=item,
+                demonstrations=self.demonstrations[task],
+                strategy=prompt_strategy,
+                task_type=task
+            )
         else:
-            # For test items, just have the prompt "Answer:"
-            answer_text = "Answer:"
-        
-        if prompt_strategy == "base":
-            prompt = f"{context_text}Question: {item['question']}\n{choices_text}{answer_text}"
-        
-        elif prompt_strategy == "shared_instruction":
-            if is_demo:
-                instruction = ""  # No instruction for demos to save space
-            else:
-                instruction = "Below are some examples of multiple-choice questions with six potential answers. For each question, only one option is correct.\n\n"
-                instruction += "Now make your best effort and select the correct answer for the following question. You only need to output the option.\n\n"
-            
-            prompt = f"{instruction}{context_text}Question: {item['question']}\n{choices_text}{answer_text}"
-        
-        elif prompt_strategy == "task_specific":
-            if is_demo:
-                instruction = ""  # No instruction for demos to save space
-            else:
-                if task == "qa":
-                    instruction = "Below are some examples of multiple-choice questions about question answering. "
-                    instruction += "Each question should be answered based on your world knowledge and problem solving ability.\n\n"
-                elif task == "rc":
-                    instruction = "Below are some examples of multiple-choice questions about reading comprehension. "
-                    instruction += "Each question should be answered based on the given context and commonsense reasoning when necessary.\n\n"
-                elif task == "ci":
-                    instruction = "Below are some examples of multiple-choice questions about commonsense natural language inference. "
-                    instruction += "For each question, there is a given context and the answer is the option that most likely follows the context.\n\n"
-                elif task == "drs":
-                    instruction = "Below are some examples of multiple-choice questions about dialogue response selection. "
-                    instruction += "For each question, the answer is the option that represents the most suitable response for the given dialogue history, "
-                    instruction += "without hallucination and non-factual information.\n\n"
-                elif task == "ds":
-                    instruction = "Below are some examples of multiple-choice questions about document summarization. "
-                    instruction += "For each question, the answer is the option that accurately summarizes the given document without "
-                    instruction += "hallucination and non-factual information.\n\n"
-                
-                instruction += "Now make your best effort and select the correct answer for the following question. You only need to output the option.\n\n"
-            
-            prompt = f"{instruction}{context_text}Question: {item['question']}\n{choices_text}{answer_text}"
-        
-        else:
-            raise ValueError(f"Unknown prompt strategy: {prompt_strategy}")
-        
-        return prompt
+            # Use formatter without demonstrations
+            return self.prompt_formatter.format_prompt(
+                item=item,
+                strategy=prompt_strategy,
+                is_demo=False,
+                task_type=task
+            )
     
     def evaluate_model(
         self, 
@@ -316,17 +255,25 @@ class LLMUncertaintyBenchmark:
                     
                     try:
                         # Get logits from the model API
-                        logits = self._get_logits_from_api(model_name, prompt, use_chat_template)
+                        logits = get_logits_from_api(
+                            api_base_url=self.api_base_url,
+                            model_name=model_name,
+                            prompt=prompt,
+                            use_chat_template=use_chat_template,
+                            api_key=self.api_key,
+                            temperature=temperature
+                        )
                         
-                        # Store item with its logits
-                        item_with_logits = {
-                            'item': item,
-                            'logits': logits,
-                            'softmax': self._softmax(logits)
-                        }
-                        calibration_logits.append(item_with_logits)
+                        if logits:
+                            # Store item with its logits
+                            item_with_logits = {
+                                'item': item,
+                                'logits': logits,
+                                'softmax': softmax(logits)
+                            }
+                            calibration_logits.append(item_with_logits)
                     except Exception as e:
-                        logger.error(f"Error getting logits for calibration item {item['id']}: {e}")
+                        logger.error(f"Error getting logits for calibration item {item.get('id', 'unknown')}: {e}")
                 
                 # Get logits for test set
                 test_logits = []
@@ -337,27 +284,42 @@ class LLMUncertaintyBenchmark:
                     
                     try:
                         # Get logits from the model API
-                        logits = self._get_logits_from_api(model_name, prompt, use_chat_template)
+                        logits = get_logits_from_api(
+                            api_base_url=self.api_base_url,
+                            model_name=model_name,
+                            prompt=prompt,
+                            use_chat_template=use_chat_template,
+                            api_key=self.api_key,
+                            temperature=temperature
+                        )
                         
-                        # Store item with its logits
-                        item_with_logits = {
-                            'item': item,
-                            'logits': logits,
-                            'softmax': self._softmax(logits)
-                        }
-                        test_logits.append(item_with_logits)
+                        if logits:
+                            # Store item with its logits
+                            item_with_logits = {
+                                'item': item,
+                                'logits': logits,
+                                'softmax': softmax(logits)
+                            }
+                            test_logits.append(item_with_logits)
                     except Exception as e:
-                        logger.error(f"Error getting logits for test item {item['id']}: {e}")
+                        logger.error(f"Error getting logits for test item {item.get('id', 'unknown')}: {e}")
                 
-                # Calculate metrics using LAC conformal score function
-                lac_results = self._calculate_metrics_with_conformal_prediction(
-                    calibration_logits, test_logits, score_function="lac"
-                )
-                
-                # Calculate metrics using APS conformal score function
-                aps_results = self._calculate_metrics_with_conformal_prediction(
-                    calibration_logits, test_logits, score_function="aps"
-                )
+                # Check if we have valid calibration and test data
+                if not calibration_logits or not test_logits:
+                    logger.warning(f"No valid calibration or test data for {task} with {prompt_strategy} strategy.")
+                    # Return empty results
+                    lac_results = {'acc': 0, 'cr': 0, 'ss': 0}
+                    aps_results = {'acc': 0, 'cr': 0, 'ss': 0}
+                else:
+                    # Calculate metrics using LAC conformal score function
+                    lac_results = calculate_metrics_with_conformal_prediction(
+                        calibration_logits, test_logits, score_function="lac", error_rate=self.error_rate
+                    )
+                    
+                    # Calculate metrics using APS conformal score function
+                    aps_results = calculate_metrics_with_conformal_prediction(
+                        calibration_logits, test_logits, score_function="aps", error_rate=self.error_rate
+                    )
                 
                 # Average the results
                 avg_results = {
@@ -400,248 +362,6 @@ class LLMUncertaintyBenchmark:
         logger.info(f"Overall results for {model_name}: Acc={overall_avg['acc']:.4f}, CR={overall_avg['cr']:.4f}, SS={overall_avg['ss']:.4f}")
         
         return self.results[model_name]
-    
-    def _get_logits_from_api(self, model_name: str, prompt: str, use_chat_template: bool) -> List[float]:
-        """
-        Get logits from the OpenAI-compatible API.
-        
-        Args:
-            model_name: Name of the model
-            prompt: The formatted prompt
-            use_chat_template: Whether to use chat template
-            
-        Returns:
-            List of logits for the options A-F
-        """
-        headers = {
-            "Content-Type": "application/json"
-        }
-        
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-        
-        if use_chat_template:
-            # Format as a chat message for instruction-tuned models
-            data = {
-                "model": model_name,
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.0,
-                "logprobs": True,
-                "top_logprobs": 10
-            }
-        else:
-            # Use standard completion for base models
-            data = {
-                "model": model_name,
-                "prompt": prompt,
-                "temperature": 0.0,
-                "max_tokens": 1,
-                "logprobs": 10,
-                "echo": False
-            }
-        
-        try:
-            response = requests.post(
-                f"{self.api_base_url}/completions", 
-                headers=headers,
-                json=data
-            )
-            response.raise_for_status()
-            
-            result = response.json()
-            
-            # Extract logits/logprobs for options A-F
-            # The exact logic will depend on the API response structure
-            
-            # For standard completion API:
-            if not use_chat_template:
-                logprobs = result["choices"][0]["logprobs"]["top_logprobs"][0]
-                
-                # Extract logits for A, B, C, D, E, F
-                option_logits = []
-                for option in ["A", "B", "C", "D", "E", "F"]:
-                    if option in logprobs:
-                        option_logits.append(logprobs[option])
-                    else:
-                        # If option not in top logprobs, use a very low value
-                        option_logits.append(-100.0)
-            else:
-                # Logic for chat models - adjust based on actual API response
-                # This is a placeholder and would need to be adapted
-                logprobs = result["choices"][0]["logprobs"]["content"][0]["top_logprobs"]
-                
-                option_logits = []
-                for option in ["A", "B", "C", "D", "E", "F"]:
-                    option_logit = next((lp["logprob"] for lp in logprobs if lp["token"] == option), -100.0)
-                    option_logits.append(option_logit)
-            
-            return option_logits
-        
-        except Exception as e:
-            logger.error(f"Error getting logits from API: {e}")
-            raise
-    
-    def _softmax(self, logits: List[float]) -> List[float]:
-        """Apply softmax to logits."""
-        exp_logits = [np.exp(x) for x in logits]
-        sum_exp_logits = sum(exp_logits)
-        return [x / sum_exp_logits for x in exp_logits]
-    
-    def _calculate_metrics_with_conformal_prediction(
-        self, 
-        calibration_data: List[Dict], 
-        test_data: List[Dict],
-        score_function: str = "lac"
-    ) -> Dict:
-        """
-        Calculate metrics using conformal prediction.
-        
-        Args:
-            calibration_data: List of calibration items with logits
-            test_data: List of test items with logits
-            score_function: Conformal score function to use ("lac" or "aps")
-            
-        Returns:
-            Dictionary with metrics
-        """
-        # Calculate conformal scores for calibration data
-        calibration_scores = []
-        
-        for item_data in calibration_data:
-            item = item_data['item']
-            softmax_probs = item_data['softmax']
-            
-            # Get the index of the correct answer
-            correct_idx = None
-            try:
-                if isinstance(item['answer'], int):
-                    # Direct integer index
-                    if 0 <= item['answer'] < len(item['choice_labels']):
-                        correct_idx = item['answer']
-                    else:
-                        logger.warning(f"Answer index out of range: {item['answer']}")
-                elif isinstance(item['answer'], str):
-                    if item['answer'] in item['choice_labels']:
-                        # If answer is already a label like 'A', 'B', etc.
-                        correct_idx = item['choice_labels'].index(item['answer'])
-                    elif item['answer'].isdigit():
-                        # If answer is a digit string
-                        idx = int(item['answer'])
-                        if 0 <= idx < len(item['choice_labels']):
-                            correct_idx = idx
-                        else:
-                            logger.warning(f"Answer string index out of range: {item['answer']}")
-            except Exception as e:
-                logger.warning(f"Error determining correct answer index: {e}")
-            
-            if correct_idx is None:
-                logger.warning(f"Could not determine correct answer index for item {item['id']}")
-                continue
-            
-            # Calculate conformal score
-            if score_function == "lac":
-                # LAC: 1 - probability of the true label
-                score = 1 - softmax_probs[correct_idx]
-            elif score_function == "aps":
-                # APS: Sum of probabilities of labels with probability >= true label
-                true_prob = softmax_probs[correct_idx]
-                score = sum([p for p in softmax_probs if p >= true_prob])
-            else:
-                raise ValueError(f"Unknown score function: {score_function}")
-            
-            calibration_scores.append(score)
-        
-        # Calculate threshold
-        n = len(calibration_scores)
-        quantile = int(np.ceil((n + 1) * (1 - self.error_rate))) / n
-        threshold = np.quantile(calibration_scores, quantile)
-        
-        # Calculate metrics for test data
-        correct_count = 0
-        covered_count = 0
-        prediction_set_sizes = []
-        
-        for item_data in test_data:
-            item = item_data['item']
-            softmax_probs = item_data['softmax']
-            
-            # Find the predicted label (highest probability)
-            pred_idx = np.argmax(softmax_probs)
-            pred_label = item['choice_labels'][pred_idx]
-            
-            # Find the correct label
-            correct_idx = None
-            try:
-                if isinstance(item['answer'], int):
-                    # Direct integer index
-                    if 0 <= item['answer'] < len(item['choice_labels']):
-                        correct_idx = item['answer']
-                    else:
-                        logger.warning(f"Answer index out of range: {item['answer']}")
-                elif isinstance(item['answer'], str):
-                    if item['answer'] in item['choice_labels']:
-                        # If answer is already a label like 'A', 'B', etc.
-                        correct_idx = item['choice_labels'].index(item['answer'])
-                    elif item['answer'].isdigit():
-                        # If answer is a digit string
-                        idx = int(item['answer'])
-                        if 0 <= idx < len(item['choice_labels']):
-                            correct_idx = idx
-                        else:
-                            logger.warning(f"Answer string index out of range: {item['answer']}")
-            except Exception as e:
-                logger.warning(f"Error determining correct answer index: {e}")
-            
-            if correct_idx is None:
-                logger.warning(f"Could not determine correct answer index for item {item['id']}")
-                continue
-            
-            correct_label = item['choice_labels'][correct_idx]
-            
-            # Check if prediction is correct
-            if pred_label == correct_label:
-                correct_count += 1
-            
-            # Construct prediction set
-            prediction_set = []
-            for i, (prob, label) in enumerate(zip(softmax_probs, item['choice_labels'])):
-                if score_function == "lac":
-                    # LAC: Add to set if 1 - probability <= threshold
-                    if 1 - prob <= threshold:
-                        prediction_set.append(label)
-                elif score_function == "aps":
-                    # APS: Calculate sum for each label and add if <= threshold
-                    sum_prob = sum([p for p in softmax_probs if p >= prob])
-                    if sum_prob <= threshold:
-                        prediction_set.append(label)
-            
-            # Ensure the prediction set is not empty
-            if not prediction_set:
-                prediction_set = [pred_label]
-            
-            # Check if the correct label is in the prediction set
-            if correct_label in prediction_set:
-                covered_count += 1
-            
-            # Record prediction set size
-            prediction_set_sizes.append(len(prediction_set))
-        
-        # Calculate metrics
-        n_test = len(test_data)
-        
-        acc = correct_count / n_test if n_test > 0 else 0
-        cr = covered_count / n_test if n_test > 0 else 0
-        ss = sum(prediction_set_sizes) / n_test if n_test > 0 else 0
-        
-        return {
-            'acc': acc,
-            'cr': cr,
-            'ss': ss,
-            'threshold': threshold,
-            'prediction_set_sizes': prediction_set_sizes
-        }
     
     def generate_report(self, model_names: List[str] = None, output_file: str = None) -> pd.DataFrame:
         """
@@ -771,13 +491,16 @@ class LLMUncertaintyBenchmark:
         # Create task-specific visualizations
         task_list = [task for task in report_df['Task'].unique() if task != 'Average']
         
-        # Create figure with 5 subplots (one for each task)
+        # Create figure with subplots (one for each task)
         fig, axes = plt.subplots(len(task_list), 1, figsize=(10, 4*len(task_list)))
+        
+        if len(task_list) == 1:
+            axes = [axes]  # Make sure axes is always a list
         
         for i, task in enumerate(task_list):
             task_df = report_df[report_df['Task'] == task].copy()
             
-            ax = axes[i] if len(task_list) > 1 else axes
+            ax = axes[i]
             
             # Sort by accuracy
             task_df = task_df.sort_values('Accuracy', ascending=False)

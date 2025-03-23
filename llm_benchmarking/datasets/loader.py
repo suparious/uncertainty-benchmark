@@ -1,20 +1,17 @@
 """
-Utility functions for loading and processing datasets for the LLM Uncertainty Benchmark.
-This module handles the specifics of each dataset format.
+Dataset loading utilities for LLM Uncertainty Benchmarking.
 """
 
 import os
-import logging
 import random
-from typing import List, Dict, Any, Optional
-from datasets import load_dataset
+import logging
+from typing import List, Dict, Any, Optional, Union
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+from datasets import load_dataset
+from ..utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 def load_mmlu_dataset(sample_size: int = 10000) -> List[Dict]:
     """
@@ -112,6 +109,7 @@ def load_mmlu_dataset(sample_size: int = 10000) -> List[Dict]:
     
     return all_data
 
+
 def load_cosmos_qa_dataset(sample_size: int = 10000) -> List[Dict]:
     """
     Load and format the CosmosQA dataset.
@@ -162,6 +160,7 @@ def load_cosmos_qa_dataset(sample_size: int = 10000) -> List[Dict]:
     except Exception as e:
         logger.error(f"Error loading CosmosQA dataset: {e}")
         return []
+
 
 def load_hellaswag_dataset(sample_size: int = 10000) -> List[Dict]:
     """
@@ -222,6 +221,7 @@ def load_hellaswag_dataset(sample_size: int = 10000) -> List[Dict]:
         logger.error(f"Error loading HellaSwag dataset: {e}")
         return []
 
+
 def load_halueval_dialogue_dataset(sample_size: int = 10000) -> List[Dict]:
     """
     Load and format the HaluEval dialogue dataset.
@@ -266,6 +266,7 @@ def load_halueval_dialogue_dataset(sample_size: int = 10000) -> List[Dict]:
         logger.error(f"Error creating mock HaluEval dialogue dataset: {e}")
         return []
 
+
 def load_halueval_summarization_dataset(sample_size: int = 10000) -> List[Dict]:
     """
     Load and format the HaluEval summarization dataset.
@@ -309,25 +310,3 @@ def load_halueval_summarization_dataset(sample_size: int = 10000) -> List[Dict]:
     except Exception as e:
         logger.error(f"Error creating mock HaluEval summarization dataset: {e}")
         return []
-
-if __name__ == "__main__":
-    # Test the dataset loading functions
-    print("Testing MMLU dataset loading...")
-    mmlu_data = load_mmlu_dataset(100)
-    print(f"Loaded {len(mmlu_data)} samples from MMLU")
-    
-    print("\nTesting CosmosQA dataset loading...")
-    cosmos_data = load_cosmos_qa_dataset(100)
-    print(f"Loaded {len(cosmos_data)} samples from CosmosQA")
-    
-    print("\nTesting HellaSwag dataset loading...")
-    hellaswag_data = load_hellaswag_dataset(100)
-    print(f"Loaded {len(hellaswag_data)} samples from HellaSwag")
-    
-    print("\nTesting HaluEval dialogue dataset loading...")
-    haludial_data = load_halueval_dialogue_dataset(100)
-    print(f"Loaded {len(haludial_data)} samples from HaluEval dialogue")
-    
-    print("\nTesting HaluEval summarization dataset loading...")
-    halusum_data = load_halueval_summarization_dataset(100)
-    print(f"Loaded {len(halusum_data)} samples from HaluEval summarization")

@@ -1,24 +1,20 @@
-import os
-import argparse
+"""
+Parallel benchmarking module for LLM Uncertainty Benchmarking.
+"""
+
 import time
-import logging
-import sys
-from typing import List, Dict, Any
-from main import LLMUncertaintyBenchmark
-from parallel_utils import ParallelProcessor, ThreadedProcessor, parallel_map
+import numpy as np
+from typing import List, Dict, Any, Optional, Union
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("benchmark.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger(__name__)
+from .core import LLMBenchmark
+from .metrics import calculate_metrics_with_conformal_prediction
+from ..utils.logging import get_logger
+from ..utils.parallel import ParallelProcessor, ThreadedProcessor
 
-class ParallelBenchmark(LLMUncertaintyBenchmark):
+logger = get_logger(__name__)
+
+
+class ParallelBenchmark(LLMBenchmark):
     """
     Extended benchmark class that adds parallel processing capabilities.
     """
@@ -286,23 +282,30 @@ class ParallelBenchmark(LLMUncertaintyBenchmark):
                 'avg': {'acc': 0, 'cr': 0, 'ss': 0}
             }
         
-        # Calculate metrics using LAC conformal score function
-        try:
-            lac_results = self._calculate_metrics_with_conformal_prediction(
-                calibration_results, test_results, score_function="lac"
-            )
-        except Exception as e:
-            logger.error(f"Error calculating LAC metrics: {str(e)}")
+        # Check if we have valid calibration and test data
+        if not calibration_results or not test_results:
+            logger.warning(f"No valid calibration or test data.")
+            # Return empty results
             lac_results = {'acc': 0, 'cr': 0, 'ss': 0}
-        
-        # Calculate metrics using APS conformal score function
-        try:
-            aps_results = self._calculate_metrics_with_conformal_prediction(
-                calibration_results, test_results, score_function="aps"
-            )
-        except Exception as e:
-            logger.error(f"Error calculating APS metrics: {str(e)}")
             aps_results = {'acc': 0, 'cr': 0, 'ss': 0}
+        else:
+            # Calculate metrics using LAC conformal score function
+            try:
+                lac_results = calculate_metrics_with_conformal_prediction(
+                    calibration_results, test_results, score_function="lac", error_rate=self.error_rate
+                )
+            except Exception as e:
+                logger.error(f"Error calculating LAC metrics: {str(e)}")
+                lac_results = {'acc': 0, 'cr': 0, 'ss': 0}
+            
+            # Calculate metrics using APS conformal score function
+            try:
+                aps_results = calculate_metrics_with_conformal_prediction(
+                    calibration_results, test_results, score_function="aps", error_rate=self.error_rate
+                )
+            except Exception as e:
+                logger.error(f"Error calculating APS metrics: {str(e)}")
+                aps_results = {'acc': 0, 'cr': 0, 'ss': 0}
         
         # Average the results
         avg_results = {
@@ -316,237 +319,3 @@ class ParallelBenchmark(LLMUncertaintyBenchmark):
             'aps': aps_results,
             'avg': avg_results
         }
-
-
-def benchmark_single_model(
-    api_base_url, 
-    api_key, 
-    model_name, 
-    output_dir, 
-    batch_size=10, 
-    max_workers=5,
-    use_async=True,
-    sample_size=10000,
-    timeout=60.0,
-    max_retries=3,
-    retry_delay=1.0,
-    task=None
-):
-    """
-    Benchmark a single model using parallel processing and save results.
-    
-    Args:
-        api_base_url: Base URL for the API
-        api_key: API key (if required)
-        model_name: Name of the model to benchmark
-        output_dir: Directory to save results to
-        batch_size: Number of samples per batch
-        max_workers: Maximum number of parallel workers
-        use_async: Whether to use async-based or thread-based parallelization
-        sample_size: Number of samples per task
-        timeout: Timeout for API requests in seconds
-        max_retries: Maximum number of retries for failed requests
-        retry_delay: Initial delay between retries in seconds
-        task: Optional specific task to evaluate (if None, evaluates all tasks)
-    """
-    start_time = time.time()
-    
-    logger.info(f"Benchmarking {model_name} using {'async' if use_async else 'threaded'} parallel processing")
-    logger.info(f"Parameters: batch_size={batch_size}, max_workers={max_workers}, timeout={timeout}s, max_retries={max_retries}")
-    
-    benchmark = ParallelBenchmark(
-        api_base_url=api_base_url,
-        api_key=api_key,
-        batch_size=batch_size,
-        max_workers=max_workers,
-        use_async=use_async,
-        timeout=timeout,
-        max_retries=max_retries,
-        retry_delay=retry_delay
-    )
-    
-    # Prepare datasets for the specified task or all tasks
-    tasks = [task] if task else None
-    benchmark.prepare_datasets(tasks=tasks, sample_size=sample_size)
-    
-    # Evaluate the model
-    is_chat_model = any(keyword in model_name.lower() for keyword in ["chat", "instruct", "conv"])
-    benchmark.evaluate_model(
-        model_name=model_name,
-        tasks=tasks,
-        use_chat_template=is_chat_model
-    )
-    
-    # Save results
-    os.makedirs(output_dir, exist_ok=True)
-    model_dir = os.path.join(output_dir, model_name.replace("/", "_"))
-    benchmark.save_results(model_dir)
-    
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-    
-    logger.info(f"Benchmark results for {model_name} saved to {model_dir}")
-    logger.info(f"Total benchmark time: {elapsed_time:.2f} seconds")
-    
-    # Generate and print summary report
-    report = benchmark.generate_report()
-    print("\nBenchmark Summary Report:")
-    print(report)
-
-
-def compare_models(
-    api_base_url, 
-    api_key, 
-    model_names, 
-    output_dir, 
-    batch_size=10, 
-    max_workers=5,
-    use_async=True,
-    sample_size=10000,
-    timeout=60.0,
-    max_retries=3,
-    retry_delay=1.0,
-    task=None
-):
-    """
-    Compare multiple models using parallel processing and generate comparative reports.
-    
-    Args:
-        api_base_url: Base URL for the API
-        api_key: API key (if required)
-        model_names: List of model names to compare
-        output_dir: Directory to save results to
-        batch_size: Number of samples per batch
-        max_workers: Maximum number of parallel workers
-        use_async: Whether to use async-based or thread-based parallelization
-        sample_size: Number of samples per task
-        timeout: Timeout for API requests in seconds
-        max_retries: Maximum number of retries for failed requests
-        retry_delay: Initial delay between retries in seconds
-        task: Optional specific task to evaluate (if None, evaluates all tasks)
-    """
-    start_time = time.time()
-    
-    logger.info(f"Comparing models: {', '.join(model_names)} using {'async' if use_async else 'threaded'} parallel processing")
-    logger.info(f"Parameters: batch_size={batch_size}, max_workers={max_workers}, timeout={timeout}s, max_retries={max_retries}")
-    
-    benchmark = ParallelBenchmark(
-        api_base_url=api_base_url,
-        api_key=api_key,
-        batch_size=batch_size,
-        max_workers=max_workers,
-        use_async=use_async,
-        timeout=timeout,
-        max_retries=max_retries,
-        retry_delay=retry_delay
-    )
-    
-    # Prepare datasets for the specified task or all tasks
-    tasks = [task] if task else None
-    benchmark.prepare_datasets(tasks=tasks, sample_size=sample_size)
-    
-    # Evaluate each model
-    for model_name in model_names:
-        logger.info(f"Evaluating {model_name}...")
-        is_chat_model = any(keyword in model_name.lower() for keyword in ["chat", "instruct", "conv"])
-        try:
-            benchmark.evaluate_model(
-                model_name=model_name,
-                tasks=tasks,
-                use_chat_template=is_chat_model
-            )
-        except Exception as e:
-            logger.error(f"Failed to evaluate model {model_name}: {str(e)}")
-    
-    # Save all results
-    os.makedirs(output_dir, exist_ok=True)
-    benchmark.save_results(output_dir)
-    
-    # Generate comparison report and visualization
-    comparison_file = os.path.join(output_dir, "model_comparison.csv")
-    benchmark.generate_report(output_file=comparison_file)
-    
-    visualization_file = os.path.join(output_dir, "model_comparison.png")
-    benchmark.visualize_results(output_file=visualization_file)
-    
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-    
-    logger.info(f"Comparison results saved to {output_dir}")
-    logger.info(f"Total comparison time: {elapsed_time:.2f} seconds")
-    
-    # Generate and print summary report
-    report = benchmark.generate_report()
-    print("\nComparison Summary Report:")
-    print(report)
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Parallel LLM Uncertainty Benchmark Examples")
-    parser.add_argument("--api-base", required=True, help="Base URL for the OpenAI-compatible API")
-    parser.add_argument("--api-key", help="API key (if required)")
-    parser.add_argument("--output-dir", default="./benchmark_results", help="Output directory for results")
-    parser.add_argument("--batch-size", type=int, default=4, help="Number of samples per batch (default: 4)")
-    parser.add_argument("--max-workers", type=int, default=2, help="Maximum number of parallel workers (default: 2)")
-    parser.add_argument("--use-threads", action="store_true", help="Use thread-based parallelization instead of async")
-    parser.add_argument("--sample-size", type=int, default=10000, help="Number of samples per task")
-    parser.add_argument("--timeout", type=float, default=60.0, help="Timeout for API requests in seconds (default: 60)")
-    parser.add_argument("--max-retries", type=int, default=3, help="Maximum number of retries for failed requests (default: 3)")
-    parser.add_argument("--retry-delay", type=float, default=1.0, help="Initial delay between retries in seconds (default: 1.0)")
-    parser.add_argument("--task", help="Optional specific task to evaluate (qa, rc, ci, drs, ds)")
-    
-    subparsers = parser.add_subparsers(dest="command", help="Command to run")
-    
-    # Single model benchmark
-    single_parser = subparsers.add_parser("single", help="Benchmark a single model")
-    single_parser.add_argument("--model", required=True, help="Name of the model to benchmark")
-    
-    # Model comparison
-    compare_parser = subparsers.add_parser("compare", help="Compare multiple models")
-    compare_parser.add_argument("--models", required=True, nargs="+", help="Names of models to compare")
-    
-    args = parser.parse_args()
-    
-    # Validate task if specified
-    task = None
-    if args.task:
-        valid_tasks = ["qa", "rc", "ci", "drs", "ds"]
-        if args.task not in valid_tasks:
-            logger.error(f"Invalid task: {args.task}. Valid tasks are: {', '.join(valid_tasks)}")
-            sys.exit(1)
-        task = args.task
-    
-    if args.command == "single":
-        benchmark_single_model(
-            args.api_base, 
-            args.api_key, 
-            args.model, 
-            args.output_dir,
-            batch_size=args.batch_size,
-            max_workers=args.max_workers,
-            use_async=not args.use_threads,
-            sample_size=args.sample_size,
-            timeout=args.timeout,
-            max_retries=args.max_retries,
-            retry_delay=args.retry_delay,
-            task=task
-        )
-    
-    elif args.command == "compare":
-        compare_models(
-            args.api_base, 
-            args.api_key, 
-            args.models, 
-            args.output_dir,
-            batch_size=args.batch_size,
-            max_workers=args.max_workers,
-            use_async=not args.use_threads,
-            sample_size=args.sample_size,
-            timeout=args.timeout,
-            max_retries=args.max_retries,
-            retry_delay=args.retry_delay,
-            task=task
-        )
-    
-    else:
-        parser.print_help()

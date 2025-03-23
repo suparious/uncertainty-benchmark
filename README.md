@@ -1,295 +1,137 @@
-# LLM Uncertainty Benchmark
+# LLM Uncertainty Benchmarking
 
-A comprehensive benchmarking framework for evaluating Large Language Models (LLMs) using uncertainty quantification, based on the paper ["Benchmarking LLMs via Uncertainty Quantification"](https://arxiv.org/abs/2401.12794).
+A framework for evaluating Language Models via uncertainty quantification based on conformal prediction.
 
 ## Overview
 
-Traditional LLM benchmarks typically focus solely on accuracy metrics. This framework extends LLM evaluation by incorporating uncertainty quantification using conformal prediction, providing a more comprehensive assessment of model performance.
+This package implements a benchmarking framework for LLMs that evaluates both accuracy and uncertainty quantification, based on the paper "Benchmarking LLMs via Uncertainty Quantification". It offers:
 
-The benchmark evaluates LLMs on 5 core NLP tasks:
-1. **Question Answering (QA)** - MMLU dataset
-2. **Reading Comprehension (RC)** - CosmosQA dataset
-3. **Commonsense Inference (CI)** - HellaSwag dataset
-4. **Dialogue Response Selection (DRS)** - HaluEval dataset
-5. **Document Summarization (DS)** - HaluEval dataset
-
-Each task is formulated as a multiple-choice question with 6 options (A-F), with the last two options being "I don't know" and "None of the above".
-
-## Key Metrics
-
-The benchmark provides three key metrics for each model:
-
-- **Accuracy (Acc)**: Traditional accuracy measure - percentage of questions answered correctly
-- **Coverage Rate (CR)**: Percentage of test instances where the true label is in the prediction set
-- **Set Size (SS)**: Average size of the prediction sets - a measure of model uncertainty (smaller is better)
-
-## Features
-
-- Evaluate LLMs using conformal prediction for uncertainty quantification
-- Support for both base and instruction-tuned models
-- Multiple prompting strategies for robust evaluation
-- Comprehensive reporting and visualization tools
-- Analysis capabilities for model scaling and instruction tuning effects
-- **NEW: Parallel processing for high-throughput evaluation**
+- Multiple benchmark tasks (QA, reading comprehension, commonsense inference, etc.)
+- Different prompt strategies to test model robustness
+- Conformal prediction for uncertainty quantification
+- Parallel processing capabilities for faster evaluation
+- Comprehensive analysis and visualization tools
 
 ## Installation
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/llm-uncertainty-benchmark.git
-cd llm-uncertainty-benchmark
+git clone https://github.com/yourusername/llm-benchmarking.git
+cd llm-benchmarking
 
-# Optionally create a virtualenv to isolate dependencies
-mkdir -p ~/venvs
-python -m venv ~/venvs/uncertainty-benchmark
-source  ~/venvs/uncertainty-benchmark/bin/activate
-
-# Install required packages
-pip install -r requirements.txt
+# Install the package
+pip install -e .
 ```
 
-The parallel implementation requires additional dependencies:
-```bash
-pip install aiohttp
-```
-
-## Usage
-
-### Basic Model Evaluation
+## Quick Start
 
 ```python
-from main import LLMUncertaintyBenchmark
+from llm_benchmarking.benchmark import LLMBenchmark
 
-# Initialize the benchmark
-benchmark = LLMUncertaintyBenchmark(
-    api_base_url="http://localhost:8000/v1",  # Your vLLM-OpenAI server endpoint
-    api_key=None,  # API key if required
-    calibration_ratio=0.5,  # Ratio of data to use for calibration
-    error_rate=0.1  # Error rate alpha for conformal prediction
+# Create a benchmark instance
+benchmark = LLMBenchmark(
+    api_base_url="http://localhost:8000/v1",
+    api_key="your-api-key"  # Optional, if needed
 )
 
-# Prepare datasets for all tasks
-benchmark.prepare_datasets()
+# Prepare datasets
+benchmark.prepare_datasets(sample_size=100)  # Use a small sample size for quick testing
 
 # Evaluate a model
 benchmark.evaluate_model(
-    model_name="meta-llama/Llama-2-13b-hf",
-    use_chat_template=False,  # Set to True for instruction-tuned models
-    prompt_strategies=["base", "shared_instruction", "task_specific"]
+    model_name="mistral-7b",
+    use_chat_template=False  # Set to True for instruction-tuned models
 )
 
-# Generate report
+# Save results
+benchmark.save_results("./results/mistral-7b")
+
+# Generate a report
 report = benchmark.generate_report()
 print(report)
 
 # Visualize results
 benchmark.visualize_results()
-
-# Save results
-benchmark.save_results("./results/llama-2-13b")
 ```
 
-### Command-line Interface
+## Command-Line Interface
 
-The package provides several command-line interfaces for common benchmarking scenarios:
-
-#### Standard Sequential Benchmarking
+The package provides command-line tools for benchmarking and analysis:
 
 ```bash
-# Benchmark a single model
-python examples.py --api-base http://localhost:8000/v1 single --model meta-llama/Llama-2-13b-hf
+# Run a benchmark
+llm-benchmark --api-base http://localhost:8000/v1 --model mistral-7b --sample-size 100
 
-# Compare multiple models
-python examples.py --api-base http://localhost:8000/v1 compare --models meta-llama/Llama-2-7b-hf meta-llama/Llama-2-13b-hf
+# Run benchmark with parallel processing
+llm-benchmark --api-base http://localhost:8000/v1 --model mistral-7b --parallel --batch-size 10 --max-workers 4
 
-# Analyze effect of model scale
-python examples.py --api-base http://localhost:8000/v1 scale --family meta-llama/Llama-2 --sizes 7b 13b 70b
+# Analyze results
+llm-analyze --input-dirs ./benchmark_results --mode basic
 
-# Analyze effect of instruction tuning
-python examples.py --api-base http://localhost:8000/v1 instruct --family meta-llama/Llama-2 --sizes 7b 13b
+# Compare model scaling (e.g., for different sizes of the same model family)
+llm-analyze --input-dirs ./benchmark_results --mode scaling --model-family llama --model-sizes 7B 13B 70B
 ```
 
-#### High-Performance Parallel Benchmarking
+## Features
 
-For faster evaluation using parallel processing:
+### Tasks
 
-```bash
-# Benchmark a single model with parallel processing
-python examples_parallel.py --api-base http://localhost:8000/v1 \
-  --batch-size 20 --max-workers 8 \
-  single --model meta-llama/Llama-2-13b-hf
+The benchmark includes the following tasks:
 
-# Compare multiple models with parallel processing
-python examples_parallel.py --api-base http://localhost:8000/v1 \
-  --batch-size 20 --max-workers 8 \
-  compare --models meta-llama/Llama-2-7b-hf meta-llama/Llama-2-13b-hf
-  
-# Use thread-based parallelism instead of async (if needed)
-python examples_parallel.py --api-base http://localhost:8000/v1 \
-  --batch-size 20 --max-workers 8 --use-threads \
-  single --model meta-llama/Llama-2-13b-hf
-  
-# Reduce sample size for faster testing
-python examples_parallel.py --api-base http://localhost:8000/v1 \
-  --batch-size 20 --max-workers 8 --sample-size 1000 \
-  single --model meta-llama/Llama-2-13b-hf
-```
+- **qa**: Question Answering (MMLU dataset)
+- **rc**: Reading Comprehension (CosmosQA dataset)
+- **ci**: Commonsense Inference (HellaSwag dataset)
+- **drs**: Dialogue Response Selection (HaluEval dialogue dataset)
+- **ds**: Document Summarization (HaluEval summarization dataset)
 
-The parallel implementation provides significant speedups by:
+### Prompt Strategies
 
-- Processing multiple samples in parallel using batched API requests
-- Parallelizing across different tasks and prompt strategies
-- Using either async I/O or thread-based concurrency
-- Providing configurable batch sizes and worker counts
+Three prompt strategies are available:
 
-#### Conservative Parallel Benchmarking
+- **base**: Minimal instructions
+- **shared_instruction**: Shared instructions for all tasks
+- **task_specific**: Task-specific instructions
 
-```bash
-python examples_parallel.py --api-base http://localhost:8000/v1 --batch-size 2 --max-workers 1 --timeout 90 --max-retries 5 --retry-delay 2 --task qa single --model solidrust/Hermes-3-Llama-3.1-8B-AWQ
-```
+### Metrics
 
-Process only 2 samples per batch
-Use only 1 worker to avoid overwhelming your server
-Increase the timeout to 90 seconds to allow for slower responses
-Use 5 retries with a starting delay of 2 seconds
-Only run the "qa" task instead of all 5 tasks
-Generate both console and file logs for troubleshooting
+The benchmark evaluates models using three key metrics:
 
-### Testing Options
+- **Accuracy**: Percentage of correct predictions
+- **Coverage Rate**: Percentage of tests where the correct answer is in the prediction set
+- **Set Size**: Average size of the prediction set (smaller is better)
 
-#### 1. Quick Testing
+### Parallel Processing
 
-For a simple verification that everything works:
+For faster evaluation, the benchmark offers two parallelization approaches:
 
-```bash
-python quick_test.py --api-base http://yourserver.example.com/v1 --model your-model-name
-```
+- **Async-based**: Using asyncio and aiohttp
+- **Thread-based**: Using ThreadPoolExecutor
 
-This will run a minimal test with just a few samples from the HellaSwag dataset.
+## Examples
 
-#### 2. Small Sample Testing
+See the `examples` directory for sample scripts:
 
-For a more comprehensive test but with smaller sample sizes:
+- `basic_benchmark.py`: Basic benchmarking
+- `parallel_benchmark.py`: Benchmarking with parallel processing
+- `model_comparison.py`: Comparing multiple models
 
-```bash
-python examples_small.py --api-base http://yourserver.example.com/v1 --sample-size 100 single --model your-model-name
-```
+## Documentation
 
-This will run the benchmark on all five tasks but with only 100 samples per task.
-
-#### 3. Full Benchmark
-
-Once you've verified everything works, you can run the full benchmark:
-
-```bash
-# Sequential version (slower but uses less resources)
-python examples.py --api-base http://yourserver.example.com/v1 single --model your-model-name
-
-# Parallel version (faster, uses more resources)
-python examples_parallel.py --api-base http://yourserver.example.com/v1 \
-  --batch-size 20 --max-workers 8 \
-  single --model your-model-name
-```
-
-## Optimizing Performance
-
-The parallel implementation allows you to tune the benchmarking performance:
-
-### Batch Size
-Controls how many samples are processed in a single batch:
-- Higher values increase throughput but use more memory
-- Recommended range: 10-50 (depending on your hardware)
-
-### Worker Count
-Controls how many parallel workers are used:
-- Higher values allow more concurrent API requests
-- Should not exceed your API endpoint's capacity
-- Recommended range: 4-16 (depending on your server)
-
-### Async vs Threads
-Two parallelization models are available:
-- **Async I/O** (default): Better for I/O-bound operations like API calls
-- **Thread-based**: May work better in some environments
-
-### Example Configurations
-
-For a powerful server with good network connection:
-```bash
-python examples_parallel.py --api-base http://yourserver.example.com/v1 \
-  --batch-size 50 --max-workers 16 \
-  single --model your-model-name
-```
-
-For a more modest setup:
-```bash
-python examples_parallel.py --api-base http://yourserver.example.com/v1 \
-  --batch-size 10 --max-workers 4 \
-  single --model your-model-name
-```
-
-## Common Issues and Solutions
-
-### 1. "Sample larger than population" error
-
-This happens when there aren't enough samples in a dataset for the required number of demonstrations. The fixed version now checks for this and provides a warning if there aren't enough samples.
-
-### 2. Answer format errors
-
-The original code assumed a specific answer format, but datasets may have different formats (integer indices, string labels, etc.). The fixed version now handles all common answer formats robustly.
-
-### 3. Memory issues with large datasets
-
-If you're experiencing memory issues with large datasets:
-- Try using `examples_small.py` with a smaller sample size
-- Modify the code to process datasets in chunks
-- Run one task at a time instead of all five together
-
-### 4. API rate limiting with parallel requests
-
-If you encounter rate limiting issues:
-- Reduce the number of workers (`--max-workers`)
-- Increase the delay between requests
-- Use thread-based parallelism (`--use-threads`) which may behave better with some APIs
-
-## Understanding Results
-
-When analyzing the results, keep in mind:
-
-1. **Accuracy vs. Uncertainty**: Models with higher accuracy don't necessarily have lower uncertainty.
-2. **Model Scale Effects**: Larger models may demonstrate different uncertainty patterns compared to smaller ones.
-3. **Instruction Tuning Effects**: Instruction-tuned models often show different uncertainty characteristics than their base counterparts.
-
-The key insight from the paper is that both accuracy and uncertainty are important metrics, and they don't always correlate. This provides a more nuanced understanding of model performance.
-
-## Example Results Visualization
-
-![Example Benchmark Visualization](./docs/example_visualization.png)
-
-## Requirements
-
-The framework requires:
-
-1. Access to LLMs via an OpenAI-compatible API (e.g., vLLM server)
-2. Python 3.8+ with the following packages:
-   - numpy
-   - pandas
-   - matplotlib
-   - seaborn
-   - requests
-   - tqdm
-   - datasets
-   - torch
-   - aiohttp (for parallel async processing)
+For more detailed documentation, please refer to the docstrings in the code and the examples.
 
 ## Citation
 
-If you use this benchmark in your research, please cite:
+If you use this framework in your research, please cite the original paper:
 
-```bibtex
-@article{ye2024benchmarking,
+```
+@article{LLMUncertaintyBenchmark,
   title={Benchmarking LLMs via Uncertainty Quantification},
-  author={Ye, Fanghua and Yang, Mingming and Pang, Jianhui and Wang, Longyue and Wong, Derek F. and Yilmaz, Emine and Shi, Shuming and Tu, Zhaopeng},
-  journal={arXiv preprint arXiv:2401.12794},
-  year={2024}
+  author={Paper authors},
+  journal={arXiv preprint},
+  year={2023}
 }
 ```
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
