@@ -85,7 +85,7 @@ benchmark.save_results("./results/llama-2-13b")
 
 ### Command-line Interface
 
-The package also provides a command-line interface for common benchmarking scenarios:
+The package also provides a command-line interface for common benchmarking scenarios (using the [setup_vllm_server.sh](./setup_vllm_server.sh) example):
 
 ```bash
 # Benchmark a single model
@@ -103,10 +103,10 @@ python examples.py --api-base http://localhost:8000/v1 instruct --family meta-ll
 
 ### 1. Quick Testing
 
-For a simple verification that everything works, use `quick_test_fixed.py`:
+For a simple verification that everything works, use `quick_test.py`:
 
 ```bash
-python quick_test_fixed.py --api-base http://yourserver.example.com/v1 --model your-model-name
+python quick_test.py --api-base http://yourserver.example.com/v1 --model your-model-name
 ```
 
 This will run a minimal test with just a few samples from the HellaSwag dataset.

@@ -8,3 +8,7 @@ __pycache__/
 
 # venv
 venv/
+
+# AI prompts
+OPENER.md
+CUSTOM_INSTRUCTIONS.md

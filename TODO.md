@@ -5,7 +5,7 @@
 - ✅ Created proper dataset loading utilities in `dataset_utils.py`
 - ✅ Fixed the MMLU dataset loading to properly handle categories
 - ✅ Updated `main.py` to use the new dataset utilities
-- ✅ Added a simplified `quick_test_fixed.py` for basic verification
+- ✅ Added a simplified `quick_test.py` for basic verification
 - ✅ Fixed handling of different answer formats for robust error handling
 - ✅ Created `examples_small.py` for testing with smaller sample sizes
 
@@ -42,6 +42,6 @@
 
 ## Usage Notes
 
-- Use `quick_test_fixed.py` for a basic verification of the setup
+- Use `quick_test.py` for a basic verification of the setup
 - For MMLU dataset, make sure you have enough disk space as it's a large dataset
 - When running the full benchmark, consider starting with a smaller sample size first
