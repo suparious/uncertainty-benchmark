@@ -109,7 +109,7 @@ python examples.py --api-base http://localhost:8000/v1 scale --family meta-llama
 python examples.py --api-base http://localhost:8000/v1 instruct --family meta-llama/Llama-2 --sizes 7b 13b
 ```
 
-#### High-Performance Parallel Benchmarking (NEW)
+#### High-Performance Parallel Benchmarking
 
 For faster evaluation using parallel processing:
 
@@ -136,10 +136,24 @@ python examples_parallel.py --api-base http://localhost:8000/v1 \
 ```
 
 The parallel implementation provides significant speedups by:
+
 - Processing multiple samples in parallel using batched API requests
 - Parallelizing across different tasks and prompt strategies
 - Using either async I/O or thread-based concurrency
 - Providing configurable batch sizes and worker counts
+
+#### Conservative Parallel Benchmarking
+
+```bash
+python examples_parallel.py --api-base http://localhost:8000/v1 --batch-size 2 --max-workers 1 --timeout 90 --max-retries 5 --retry-delay 2 --task qa single --model solidrust/Hermes-3-Llama-3.1-8B-AWQ
+```
+
+Process only 2 samples per batch
+Use only 1 worker to avoid overwhelming your server
+Increase the timeout to 90 seconds to allow for slower responses
+Use 5 retries with a starting delay of 2 seconds
+Only run the "qa" task instead of all 5 tasks
+Generate both console and file logs for troubleshooting
 
 ### Testing Options
 
