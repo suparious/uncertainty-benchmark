@@ -4,7 +4,7 @@ A framework for evaluating Language Models via uncertainty quantification based 
 
 ## Overview
 
-This package implements a benchmarking framework for LLMs that evaluates both accuracy and uncertainty quantification, based on the paper "Benchmarking LLMs via Uncertainty Quantification". It offers:
+This package implements a benchmarking framework for LLMs that evaluates both accuracy and uncertainty quantification, based on the paper "[Benchmarking LLMs via Uncertainty Quantification](https://arxiv.org/html/2401.12794v3)". It offers:
 
 - Multiple benchmark tasks (QA, reading comprehension, commonsense inference, etc.)
 - Different prompt strategies to test model robustness
