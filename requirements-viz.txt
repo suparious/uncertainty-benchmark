@@ -1,4 +1,7 @@
-# Requirements for enhanced visualization capabilities
+# Core visualization requirements
 matplotlib>=3.5.0
 seaborn>=0.11.0
-adjustText>=0.7.3  # For better label placement in visualizations
+
+# Optional but recommended for improved label placement
+# Uncomment the line below to install
+# adjustText>=0.7.3

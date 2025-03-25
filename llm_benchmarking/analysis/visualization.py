@@ -282,7 +282,7 @@ def visualize_results(
     # Save task figure if output_file is provided
     if output_file:
         # Create a properly named file for task visualizations
-        task_output = output_file.replace('.', '_tasks.')
+        task_output = output_file.replace('.png', '_tasks.png')
         save_figure(task_fig, task_output)
     
     # Show task figure if show is True

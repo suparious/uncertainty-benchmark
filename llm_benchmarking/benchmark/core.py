@@ -542,7 +542,7 @@ class LLMBenchmark:
             # Create a properly named file for task visualizations
             task_output = os.path.join(
                 output_dir,
-                os.path.basename(output_file).replace('.', '_tasks.')
+                os.path.basename(output_file).replace('.png', '_tasks.png')
             )
             plt.savefig(task_output, dpi=300, bbox_inches='tight')
             logger.info(f"Task-specific visualization saved to {task_output}")

@@ -65,9 +65,10 @@ def analyze_command():
     # Try to import adjustText which is used for better label placement
     try:
         from adjustText import adjust_text
+        logger.info("Found 'adjustText' package for improved label placement.")
     except ImportError:
-        logger.warning("The 'adjustText' package is not installed. Labels might overlap in some visualizations.")
-        logger.warning("For improved label placement, install with: pip install adjustText")
+        logger.info("The 'adjustText' package is not installed. Labels might overlap in some visualizations.")
+        logger.info("For improved label placement, install with: pip install adjustText")
     
     # Set up logging
     log_level = logging.DEBUG if args.verbose else logging.INFO
@@ -160,7 +161,7 @@ def analyze_command():
             )
             logger.info(f"Basic visualizations saved to:")
             logger.info(f"  - Overview: {viz_file}")
-            logger.info(f"  - Task breakdown: {viz_file.replace('.', '_tasks.')}")
+            logger.info(f"  - Task breakdown: {viz_file.replace('.png', '_tasks.png')}")
             logger.info(f"Use '--no-show' to disable automatic display of plots")
             
         elif args.mode == "comparative":

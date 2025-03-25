@@ -18,8 +18,6 @@ OPENER.md
 CUSTOM_INSTRUCTIONS.md
 
 # benchmarking outputs
-_tasks.*/
-_tasks/
 analysis_results/
 benchmark_results/
 benchmark.log

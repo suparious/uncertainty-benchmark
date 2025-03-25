@@ -182,6 +182,21 @@ def prettify_model_name(model_name: str) -> str:
     return model_name
 
 
+def rgb2hex(rgb):
+    """Convert RGB tuple to hex color code.
+    
+    This is a local implementation to avoid dependency on specific seaborn versions.
+    
+    Args:
+        rgb: Tuple of RGB values, each between 0 and 1
+        
+    Returns:
+        Hex color code string
+    """
+    rgb = tuple(int(x * 255) for x in rgb)
+    return "#{0:02x}{1:02x}{2:02x}".format(*rgb)
+
+
 def create_colormap(n_colors: int, palette: str = "tab10") -> List[str]:
     """
     Create a list of distinct colors for plotting.
@@ -209,8 +224,8 @@ def create_colormap(n_colors: int, palette: str = "tab10") -> List[str]:
         # For many colors, create a custom palette with good differentiation
         colors = sns.color_palette("hsv", n_colors)
     
-    # Convert to hex strings
-    return [sns.utils.rgb2hex(c) for c in colors]
+    # Convert to hex strings using our local implementation
+    return [rgb2hex(c) for c in colors]
 
 
 def add_labels_to_bars(
@@ -324,26 +339,37 @@ def create_benchmark_scatter_plot(
     )
     
     # Add labels for each point with improved positioning
-    # Use a text adjustment algorithm to prevent overlaps
-    from adjustText import adjust_text
-    
-    texts = []
-    for i, name in enumerate(display_names):
-        texts.append(ax.text(
-            x_values[i], 
-            y_values[i], 
-            name,
-            fontsize=10,
-            weight='bold'
-        ))
-    
-    # Adjust text positions to avoid overlaps
-    adjust_text(
-        texts,
-        arrowprops=dict(arrowstyle='->', color='gray', lw=0.5),
-        expand_points=(1.5, 1.5),
-        force_points=(0.1, 0.1)
-    )
+    try:
+        # Try to use adjustText for better label placement
+        from adjustText import adjust_text
+        
+        texts = []
+        for i, name in enumerate(display_names):
+            texts.append(ax.text(
+                x_values[i], 
+                y_values[i], 
+                name,
+                fontsize=10,
+                weight='bold'
+            ))
+        
+        # Adjust text positions to avoid overlaps
+        adjust_text(
+            texts,
+            arrowprops=dict(arrowstyle='->', color='gray', lw=0.5),
+            expand_points=(1.5, 1.5),
+            force_points=(0.1, 0.1)
+        )
+    except ImportError:
+        # Fallback if adjustText is not available
+        logger.debug("adjustText not available, using basic label placement")
+        for i, name in enumerate(display_names):
+            ax.annotate(
+                name,
+                (x_values[i] + 0.1, y_values[i] + 0.1),  # Add offset
+                fontsize=9,
+                fontweight='bold'
+            )
     
     # Set labels and title
     ax.set_title(title, fontsize=16, fontweight='bold', pad=20)
