@@ -1,5 +1,7 @@
 #!/bin/bash
 # Setup an optimized vLLM-OpenAI compatible server for LLM uncertainty benchmarking
+# BUG: This does not work with vLLM versions higher than 0.7.3, use setup_vllm_simple.sh instead.
+
 set -e  # Exit on error
 
 # Display help information

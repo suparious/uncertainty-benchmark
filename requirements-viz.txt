@@ -1,0 +1,4 @@
+# Requirements for enhanced visualization capabilities
+matplotlib>=3.5.0
+seaborn>=0.11.0
+adjustText>=0.7.3  # For better label placement in visualizations

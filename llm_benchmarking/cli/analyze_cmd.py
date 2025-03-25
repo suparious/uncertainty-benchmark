@@ -53,6 +53,21 @@ def analyze_command():
     # Check that at least one input option is provided
     if not args.input_dirs and not args.input_files:
         parser.error("At least one of --input-dirs or --input-files is required")
+        
+    # Ensure the proper dependencies are available
+    try:
+        import matplotlib
+        import seaborn
+    except ImportError:
+        logger.error("Matplotlib and seaborn are required for analysis. Please install them with: pip install matplotlib seaborn")
+        sys.exit(1)
+    
+    # Try to import adjustText which is used for better label placement
+    try:
+        from adjustText import adjust_text
+    except ImportError:
+        logger.warning("The 'adjustText' package is not installed. Labels might overlap in some visualizations.")
+        logger.warning("For improved label placement, install with: pip install adjustText")
     
     # Set up logging
     log_level = logging.DEBUG if args.verbose else logging.INFO
@@ -143,7 +158,10 @@ def analyze_command():
                 output_file=viz_file,
                 show=not args.no_show
             )
-            logger.info(f"Basic visualizations saved to {viz_file} and {viz_file.replace('.', '_tasks.')}")
+            logger.info(f"Basic visualizations saved to:")
+            logger.info(f"  - Overview: {viz_file}")
+            logger.info(f"  - Task breakdown: {viz_file.replace('.', '_tasks.')}")
+            logger.info(f"Use '--no-show' to disable automatic display of plots")
             
         elif args.mode == "comparative":
             # Task comparison visualization
@@ -154,6 +172,7 @@ def analyze_command():
                 show=not args.no_show
             )
             logger.info(f"Task comparison visualization saved to {compare_file}")
+            logger.info(f"Use '--no-show' to disable automatic display of plots")
             
         elif args.mode == "correlations":
             # Correlation visualization
@@ -164,6 +183,7 @@ def analyze_command():
                 show=not args.no_show
             )
             logger.info(f"Correlation visualization saved to {corr_file}")
+            logger.info(f"Use '--no-show' to disable automatic display of plots")
             
         elif args.mode == "prompt":
             # Check that model is specified for prompt strategy analysis
@@ -182,6 +202,7 @@ def analyze_command():
                 show=not args.no_show
             )
             logger.info(f"Prompt strategy visualization saved to {prompt_file}")
+            logger.info(f"Use '--no-show' to disable automatic display of plots")
             
         elif args.mode == "scaling":
             # Check that model family and sizes are specified for scaling analysis
@@ -203,6 +224,7 @@ def analyze_command():
                 show=not args.no_show
             )
             logger.info(f"Model scaling visualization saved to {scaling_file}")
+            logger.info(f"Use '--no-show' to disable automatic display of plots")
             
     except Exception as e:
         logger.error(f"Error during visualization: {e}", exc_info=True)

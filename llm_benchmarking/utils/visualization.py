@@ -23,11 +23,17 @@ def setup_plot_style():
     # Configure font sizes
     plt.rcParams.update({
         'font.size': 12,
-        'axes.titlesize': 14,
-        'axes.labelsize': 12,
+        'axes.titlesize': 16,
+        'axes.labelsize': 14,
         'xtick.labelsize': 10,
         'ytick.labelsize': 10,
         'legend.fontsize': 10,
+        'figure.titlesize': 18,
+        'figure.figsize': (12, 8),
+        'figure.dpi': 100,
+        'savefig.dpi': 300,
+        'savefig.bbox': 'tight',
+        'savefig.pad_inches': 0.2,
     })
 
 
@@ -52,19 +58,20 @@ def create_figure(
         Tuple of (figure, axes)
     """
     if figsize is None:
-        figsize = (8 * ncols, 6 * nrows)
+        # Calculate reasonable figure size based on rows and columns
+        width = max(10, 6 * ncols)
+        height = max(8, 5 * nrows)
+        figsize = (width, height)
     
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize)
     
     if title:
-        fig.suptitle(title)
+        fig.suptitle(title, fontweight='bold', fontsize=18)
     
     if tight_layout:
-        plt.tight_layout()
-        
-        # Adjust spacing if we have a title
+        # Add some extra space at the top for the title
         if title:
-            plt.subplots_adjust(top=0.9)
+            plt.subplots_adjust(top=0.92)
     
     return fig, axes
 
@@ -74,7 +81,8 @@ def save_figure(
     output_file: str,
     dpi: int = 300,
     bbox_inches: str = 'tight',
-    pad_inches: float = 0.1
+    pad_inches: float = 0.2,
+    transparent: bool = False
 ):
     """
     Save a figure to a file.
@@ -85,6 +93,7 @@ def save_figure(
         dpi: Resolution in dots per inch
         bbox_inches: Bounding box option
         pad_inches: Padding around the figure
+        transparent: Whether to use transparent background
     """
     # Create directory if it doesn't exist
     output_dir = os.path.dirname(output_file)
@@ -96,7 +105,8 @@ def save_figure(
         output_file,
         dpi=dpi,
         bbox_inches=bbox_inches,
-        pad_inches=pad_inches
+        pad_inches=pad_inches,
+        transparent=transparent
     )
     
     logger.info(f"Figure saved to {output_file}")
@@ -112,40 +122,91 @@ def prettify_model_name(model_name: str) -> str:
     Returns:
         Prettified model name
     """
-    # Remove organization prefix
+    # Remove organization prefix if present
     if "/" in model_name:
-        model_name = model_name.split("/")[-1]
+        org, name = model_name.split("/", 1)
+        # Keep a shortened organization name for clarity
+        short_org = org.split("-")[0] if "-" in org else org
+        model_name = f"{short_org}/{name}"
     
-    # Replace underscores and hyphens with spaces
-    model_name = model_name.replace("_", " ").replace("-", " ")
+    # Replace underscores with spaces but keep hyphens for readability
+    model_name = model_name.replace("_", " ")
     
-    # Capitalize key terms
-    for term in ["gpt", "llama", "mistral", "falcon", "mpt", "phi"]:
-        if term in model_name.lower():
-            pattern = term
-            replacement = term.upper()
-            model_name = model_name.lower().replace(pattern, replacement)
+    # Shorten common terms to save space
+    replacements = {
+        "Instruct": "Inst",
+        "Instruction": "Inst",
+        "International": "Int'l",
+        "-AWQ": "",
+        "-GPTQ": "",
+        "-Quantized": "",
+        "Language": "Lang",
+        "Foundation": "Found",
+    }
+    
+    for old, new in replacements.items():
+        model_name = model_name.replace(old, new)
+    
+    # Capitalize model family names
+    for family in ["gpt", "llama", "mistral", "falcon", "mpt", "phi", "qwen", "hermes"]:
+        if family in model_name.lower():
+            pattern = family
+            replacement = family.upper()
+            # Replace only the model family name, not if it's part of another word
+            parts = []
+            for part in model_name.split():
+                if part.lower() == pattern:
+                    parts.append(replacement)
+                elif part.lower().startswith(pattern) and not part[len(pattern):].isalpha():
+                    parts.append(replacement + part[len(pattern):])
+                else:
+                    parts.append(part)
+            model_name = " ".join(parts)
+    
+    # Max length for chart readability
+    if len(model_name) > 30:
+        # Try to smartly truncate
+        parts = model_name.split("/")
+        if len(parts) > 1:
+            # If there's an org/model split, keep both but truncate
+            org, name = parts
+            if len(org) > 10:
+                org = org[:8] + ".."
+            if len(name) > 18:
+                name = name[:16] + ".."
+            model_name = f"{org}/{name}"
+        else:
+            # Just truncate with ellipsis
+            model_name = model_name[:28] + ".."
     
     return model_name
 
 
-def create_colormap(n_colors: int) -> List[str]:
+def create_colormap(n_colors: int, palette: str = "tab10") -> List[str]:
     """
     Create a list of distinct colors for plotting.
     
     Args:
         n_colors: Number of colors needed
+        palette: Name of seaborn color palette to use
         
     Returns:
         List of color hex codes
     """
-    # Use seaborn color palettes
+    # Use different palettes based on number of colors needed
     if n_colors <= 10:
-        colors = sns.color_palette("tab10", n_colors)
+        if palette == "tab10":
+            colors = sns.color_palette("tab10", n_colors)
+        else:
+            colors = sns.color_palette(palette, n_colors)
     elif n_colors <= 20:
-        colors = sns.color_palette("tab20", n_colors)
+        if palette == "tab20":
+            colors = sns.color_palette("tab20", n_colors)
+        else:
+            # Tab20 works better for large number of categories
+            colors = sns.color_palette("tab20", n_colors)
     else:
-        # For more colors, create a custom palette
+        # For many colors, create a custom palette with good differentiation
         colors = sns.color_palette("hsv", n_colors)
     
     # Convert to hex strings
@@ -159,7 +220,8 @@ def add_labels_to_bars(
     rotation: int = 0,
     ha: str = 'center',
     va: str = 'bottom',
-    fmt: str = '.1f'
+    fmt: str = '.1f',
+    offset: float = 0.01
 ):
     """
     Add value labels to bars in a bar plot.
@@ -172,26 +234,41 @@ def add_labels_to_bars(
         ha: Horizontal alignment
         va: Vertical alignment
         fmt: Format string for numeric values
+        offset: Y-offset as proportion of the data range
     """
+    # Calculate y-offset based on data range
+    y_min, y_max = ax.get_ylim()
+    y_range = y_max - y_min
+    y_offset = y_range * offset
+
     for i, patch in enumerate(ax.patches):
         # Get bar height
         height = patch.get_height()
+        
+        # Skip labels for very small values (optional)
+        if height < y_range * 0.02:  # Skip if less than 2% of range
+            continue
         
         # Determine label
         if labels is None:
             label = f"{height:{fmt}}"
         else:
-            label = labels[i]
+            if i < len(labels):
+                label = labels[i]
+            else:
+                continue
         
         # Add text label
         ax.text(
             patch.get_x() + patch.get_width() / 2,
-            height + height * 0.01,  # Slight offset above bar
+            height + y_offset,  # Use calculated offset
             label,
             ha=ha,
             va=va,
             fontsize=fontsize,
-            rotation=rotation
+            rotation=rotation,
+            fontweight='bold',
+            color='dimgrey'
         )
 
 
@@ -230,40 +307,57 @@ def create_benchmark_scatter_plot(
     display_names = [prettify_model_name(model) for model in models]
     
     # Create color map
-    colors = create_colormap(len(models))
+    colors = create_colormap(len(models), palette="viridis")
     
     # Create figure
-    fig, ax = create_figure(figsize=(10, 8))
+    fig, ax = create_figure(figsize=(12, 10))
     
     # Create scatter plot
     scatter = ax.scatter(
         x_values,
         y_values,
-        s=100,
+        s=200,  # Larger markers
         c=colors,
-        alpha=0.8
+        alpha=0.8,
+        edgecolors='white',
+        linewidths=1.5
     )
     
-    # Add labels for each point
+    # Add labels for each point with improved positioning
+    # Use a text adjustment algorithm to prevent overlaps
+    from adjustText import adjust_text
+    
+    texts = []
     for i, name in enumerate(display_names):
-        ax.annotate(
+        texts.append(ax.text(
+            x_values[i], 
+            y_values[i], 
             name,
-            (x_values[i], y_values[i]),
-            xytext=(5, 5),
-            textcoords='offset points',
-            fontsize=10
-        )
+            fontsize=10,
+            weight='bold'
+        ))
+    
+    # Adjust text positions to avoid overlaps
+    adjust_text(
+        texts,
+        arrowprops=dict(arrowstyle='->', color='gray', lw=0.5),
+        expand_points=(1.5, 1.5),
+        force_points=(0.1, 0.1)
+    )
     
     # Set labels and title
-    ax.set_title(title)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
+    ax.set_title(title, fontsize=16, fontweight='bold', pad=20)
+    ax.set_xlabel(xlabel, fontsize=14, fontweight='bold')
+    ax.set_ylabel(ylabel, fontsize=14, fontweight='bold')
     
     # Add grid
     ax.grid(True, linestyle='--', alpha=0.7)
     
     # Adjust layout
     plt.tight_layout()
+    
+    # Add a subtle background color to enhance readability
+    ax.set_facecolor('#f8f9fa')
     
     # Save figure if output_file is provided
     if output_file:
@@ -320,36 +414,43 @@ def create_benchmark_bar_chart(
     models = df.index.tolist()
     display_names = [prettify_model_name(model) for model in models]
     
-    # Create color map
-    colors = create_colormap(len(models))
+    # Create color map with a more pleasing palette
+    colors = create_colormap(len(models), palette="muted")
     
-    # Create figure
-    fig, ax = create_figure(figsize=(12, 6))
+    # Create figure with dynamic sizing based on number of models
+    fig_width = max(12, len(models) * 0.8)
+    fig, ax = create_figure(figsize=(fig_width, 8))
     
-    # Create bar chart
+    # Create bar chart with improved styling
     bars = ax.bar(
         display_names,
         values,
         color=colors,
-        alpha=0.8
+        alpha=0.8,
+        width=0.7,
+        edgecolor='white',
+        linewidth=1.5
     )
     
-    # Add value labels
-    add_labels_to_bars(ax)
+    # Add value labels with improved formatting
+    add_labels_to_bars(ax, fontsize=10, offset=0.02)
     
-    # Set labels and title
-    ax.set_title(title)
-    ax.set_ylabel(ylabel)
-    ax.set_xlabel("Models")
+    # Set labels and title with improved styling
+    ax.set_title(title, fontsize=16, fontweight='bold', pad=20)
+    ax.set_ylabel(ylabel, fontsize=14, fontweight='bold')
+    ax.set_xlabel("Models", fontsize=14, fontweight='bold')
     
-    # Rotate x-axis labels if there are many models
-    if len(models) > 5:
-        plt.xticks(rotation=45, ha='right')
+    # Rotate x-axis labels for better readability
+    if len(models) > 3:
+        plt.xticks(rotation=30, ha='right')
     
-    # Add grid
+    # Add grid for readability but only on the y-axis
     ax.grid(True, axis='y', linestyle='--', alpha=0.7)
     
-    # Adjust layout
+    # Set background color
+    ax.set_facecolor('#f8f9fa')
+    
+    # Adjust layout for rotated labels
     plt.tight_layout()
     
     # Save figure if output_file is provided
@@ -405,16 +506,19 @@ def create_multi_metric_comparison(
     # Sort by the first metric
     df = df.sort_values(metrics[0], ascending=False)
     
-    # Set up figure
+    # Set up figure with dynamic sizing
     n_models = len(df)
-    fig_width = max(10, n_models * 0.8)
-    fig, ax = create_figure(figsize=(fig_width, 6))
+    fig_width = max(12, n_models * 1.2)
+    fig, ax = create_figure(figsize=(fig_width, 8))
+    
+    # Get a color palette that differentiates metrics well
+    colors = create_colormap(len(metrics), palette="colorblind")
     
     # Set up bar positions
     bar_width = 0.8 / len(metrics)
     positions = np.arange(len(df))
     
-    # Create a bar for each metric
+    # Create a bar for each metric with improved styling
     for i, metric in enumerate(metrics):
         offset = (i - (len(metrics) - 1) / 2) * bar_width
         ax.bar(
@@ -422,25 +526,39 @@ def create_multi_metric_comparison(
             df[metric],
             width=bar_width,
             label=metric,
-            alpha=0.7
+            color=colors[i],
+            alpha=0.8,
+            edgecolor='white',
+            linewidth=1
         )
     
-    # Set labels and title
-    ax.set_title(title)
-    ax.set_ylabel('Value')
-    ax.set_xlabel('Models')
+    # Set labels and title with improved styling
+    ax.set_title(title, fontsize=16, fontweight='bold', pad=20)
+    ax.set_ylabel('Value', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Models', fontsize=14, fontweight='bold')
     
-    # Set x-tick labels
+    # Set x-tick labels with improved readability
     ax.set_xticks(positions)
-    ax.set_xticklabels(df['Model'], rotation=45, ha='right')
+    ax.set_xticklabels(df['Model'], rotation=30, ha='right')
     
-    # Add legend
-    ax.legend()
+    # Add legend with improved styling
+    ax.legend(
+        title='Metrics',
+        title_fontsize=12,
+        fontsize=10,
+        frameon=True,
+        facecolor='white',
+        edgecolor='lightgray',
+        loc='best'
+    )
     
-    # Add grid
+    # Add grid for readability
     ax.grid(True, axis='y', linestyle='--', alpha=0.7)
     
-    # Adjust layout
+    # Set background color
+    ax.set_facecolor('#f8f9fa')
+    
+    # Adjust layout for rotated labels
     plt.tight_layout()
     
     # Save figure if output_file is provided
@@ -494,25 +612,36 @@ def create_task_comparison_chart(
     values = [values[i] for i in sorted_indices]
     
     # Create figure
-    fig, ax = create_figure(figsize=(10, 6))
+    fig, ax = create_figure(figsize=(12, 8))
     
-    # Create bar chart
+    # Choose a visually appealing color palette
+    colors = create_colormap(len(tasks), palette="viridis")
+    
+    # Create bar chart with improved styling
     bars = ax.bar(
         tasks,
         values,
-        alpha=0.8
+        color=colors,
+        alpha=0.85,
+        width=0.7,
+        edgecolor='white',
+        linewidth=1.5
     )
     
-    # Add value labels
-    add_labels_to_bars(ax)
+    # Add value labels with improved formatting
+    add_labels_to_bars(ax, fontsize=11, offset=0.02)
     
-    # Set labels and title
-    ax.set_title(title)
-    ax.set_ylabel(metric)
-    ax.set_xlabel('Tasks')
+    # Set labels and title with improved styling
+    model_name = prettify_model_name(model)
+    ax.set_title(f"{title}: {model_name}", fontsize=16, fontweight='bold', pad=20)
+    ax.set_ylabel(metric, fontsize=14, fontweight='bold')
+    ax.set_xlabel('Tasks', fontsize=14, fontweight='bold')
     
-    # Add grid
+    # Add grid for readability
     ax.grid(True, axis='y', linestyle='--', alpha=0.7)
+    
+    # Set background color
+    ax.set_facecolor('#f8f9fa')
     
     # Adjust layout
     plt.tight_layout()

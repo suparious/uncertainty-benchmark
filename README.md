@@ -68,6 +68,14 @@ llm-benchmark --api-base http://localhost:8000/v1 --model mistral-7b --parallel 
 # Analyze results
 llm-analyze --input-dirs ./benchmark_results --mode basic
 
+pip install -e ".[viz]"
+
+# Generate different types of visualizations
+llm-analyze --input-dirs ./benchmark_results --mode comparative  # Compare across tasks
+llm-analyze --input-dirs ./benchmark_results --mode correlations  # Show metric correlations
+llm-analyze --input-dirs ./benchmark_results --mode prompt --models "mistral-7b"  # Analyze prompt strategies
+llm-analyze --input-dirs ./benchmark_results --mode scaling --model-family llama --model-sizes 7B 13B 70B  # Model scaling analysis
+
 # Compare model scaling (e.g., for different sizes of the same model family)
 llm-analyze --input-dirs ./benchmark_results --mode scaling --model-family llama --model-sizes 7B 13B 70B
 ```

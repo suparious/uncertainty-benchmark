@@ -23,6 +23,9 @@ setup(
             "isort",
             "flake8",
         ],
+        "viz": [
+            "adjustText",  # For better label placement in visualizations
+        ],
     },
     entry_points={
         "console_scripts": [
