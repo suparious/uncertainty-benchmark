@@ -199,15 +199,13 @@ python -m vllm.entrypoints.openai.api_server \
   --max-model-len $MAX_MODEL_LEN \
   --served-model-name "$(basename $MODEL_NAME)" \
   --port $PORT \
-  --worker-use-ray \
-  --logprobs $LOGPROBS \
+  --distributed-executor-backend ray \
+  --max-logprobs $LOGPROBS \
   --swap-space $SWAP_SPACE \
   --max-num-batched-tokens $((MAX_MODEL_LEN * BATCH_SIZE)) \
   --max-num-seqs $BATCH_SIZE \
-  --max-paddings 256 \
   --enforce-eager \
   --disable-log-stats \
-  --enable-prompt-truncation \
   $EXTRA_ARGS
 
 # Deactivate the virtual environment when done
