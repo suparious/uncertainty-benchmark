@@ -223,7 +223,7 @@ source "$ENV_PATH/bin/activate"
 # Install vLLM
 echo "Installing vLLM and dependencies..."
 pip install --upgrade pip
-pip install "vllm>=0.3.0" "fschat>=0.2.30"
+pip install "vllm==0.7.3" "fschat>=0.2.30"
 
 # Configure CUDA for better performance
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
