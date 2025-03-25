@@ -154,37 +154,53 @@ def analyze_command():
     try:
         if args.mode == "basic":
             # Basic visualizations
-            visualize_results(
-                results,
-                output_file=viz_file,
-                show=not args.no_show
-            )
-            logger.info(f"Basic visualizations saved to:")
-            logger.info(f"  - Overview: {viz_file}")
-            logger.info(f"  - Task breakdown: {viz_file.replace('.png', '_tasks.png')}")
-            logger.info(f"Use '--no-show' to disable automatic display of plots")
+            try:
+                visualize_results(
+                    results,
+                    output_file=viz_file,
+                    show=not args.no_show
+                )
+                logger.info(f"Basic visualizations saved to:")
+                logger.info(f"  - Overview: {viz_file}")
+                logger.info(f"  - Task breakdown: {viz_file.replace('.png', '_tasks.png')}")
+                logger.info(f"Use '--no-show' to disable automatic display of plots")
+            except Exception as e:
+                logger.error(f"Error during basic visualization: {e}")
             
         elif args.mode == "comparative":
             # Task comparison visualization
-            compare_file = os.path.join(args.output_dir, f"{args.output_prefix}_task_comparison.png")
-            visualize_task_comparisons(
-                results,
-                output_file=compare_file,
-                show=not args.no_show
-            )
-            logger.info(f"Task comparison visualization saved to {compare_file}")
-            logger.info(f"Use '--no-show' to disable automatic display of plots")
+            try:
+                compare_file = os.path.join(args.output_dir, f"{args.output_prefix}_task_comparison.png")
+                visualize_task_comparisons(
+                    results,
+                    output_file=compare_file,
+                    show=not args.no_show
+                )
+                logger.info(f"Task comparison visualization saved to {compare_file}")
+                logger.info(f"Use '--no-show' to disable automatic display of plots")
+            except ValueError as e:
+                if "duplicate entries" in str(e):
+                    logger.error("Error: The visualization couldn't be created due to duplicate model names in the data.")
+                    logger.error("This can happen when models have very similar names that get simplified to the same display name.")
+                    logger.error("Potential solutions:")
+                    logger.error("1. Use fewer models with the '--models' option")
+                    logger.error("2. Use a different visualization mode (try '--mode basic')")
+                else:
+                    logger.error(f"Error during task comparison visualization: {e}")
             
         elif args.mode == "correlations":
             # Correlation visualization
-            corr_file = os.path.join(args.output_dir, f"{args.output_prefix}_correlations.png")
-            visualize_correlation(
-                results,
-                output_file=corr_file,
-                show=not args.no_show
-            )
-            logger.info(f"Correlation visualization saved to {corr_file}")
-            logger.info(f"Use '--no-show' to disable automatic display of plots")
+            try:
+                corr_file = os.path.join(args.output_dir, f"{args.output_prefix}_correlations.png")
+                visualize_correlation(
+                    results,
+                    output_file=corr_file,
+                    show=not args.no_show
+                )
+                logger.info(f"Correlation visualization saved to {corr_file}")
+                logger.info(f"Use '--no-show' to disable automatic display of plots")
+            except Exception as e:
+                logger.error(f"Error during correlation visualization: {e}")
             
         elif args.mode == "prompt":
             # Check that model is specified for prompt strategy analysis
@@ -195,15 +211,18 @@ def analyze_command():
             model = args.models[0]
             
             # Prompt strategy visualization
-            prompt_file = os.path.join(args.output_dir, f"{args.output_prefix}_prompt_strategies.png")
-            visualize_prompt_strategies(
-                results,
-                model_name=model,
-                output_file=prompt_file,
-                show=not args.no_show
-            )
-            logger.info(f"Prompt strategy visualization saved to {prompt_file}")
-            logger.info(f"Use '--no-show' to disable automatic display of plots")
+            try:
+                prompt_file = os.path.join(args.output_dir, f"{args.output_prefix}_prompt_strategies.png")
+                visualize_prompt_strategies(
+                    results,
+                    model_name=model,
+                    output_file=prompt_file,
+                    show=not args.no_show
+                )
+                logger.info(f"Prompt strategy visualization saved to {prompt_file}")
+                logger.info(f"Use '--no-show' to disable automatic display of plots")
+            except Exception as e:
+                logger.error(f"Error during prompt strategy visualization: {e}")
             
         elif args.mode == "scaling":
             # Check that model family and sizes are specified for scaling analysis
@@ -216,16 +235,19 @@ def analyze_command():
                 sys.exit(1)
                 
             # Model scaling visualization
-            scaling_file = os.path.join(args.output_dir, f"{args.output_prefix}_scaling.png")
-            visualize_model_scaling(
-                results,
-                model_family=args.model_family,
-                model_sizes=args.model_sizes,
-                output_file=scaling_file,
-                show=not args.no_show
-            )
-            logger.info(f"Model scaling visualization saved to {scaling_file}")
-            logger.info(f"Use '--no-show' to disable automatic display of plots")
+            try:
+                scaling_file = os.path.join(args.output_dir, f"{args.output_prefix}_scaling.png")
+                visualize_model_scaling(
+                    results,
+                    model_family=args.model_family,
+                    model_sizes=args.model_sizes,
+                    output_file=scaling_file,
+                    show=not args.no_show
+                )
+                logger.info(f"Model scaling visualization saved to {scaling_file}")
+                logger.info(f"Use '--no-show' to disable automatic display of plots")
+            except Exception as e:
+                logger.error(f"Error during model scaling visualization: {e}")
             
     except Exception as e:
         logger.error(f"Error during visualization: {e}", exc_info=True)

@@ -112,12 +112,13 @@ def save_figure(
     logger.info(f"Figure saved to {output_file}")
 
 
-def prettify_model_name(model_name: str) -> str:
+def prettify_model_name(model_name: str, preserve_version: bool = False) -> str:
     """
     Make model name more readable for display in visualizations.
     
     Args:
         model_name: Original model name
+        preserve_version: Whether to preserve version numbers for distinction
         
     Returns:
         Prettified model name
@@ -132,23 +133,27 @@ def prettify_model_name(model_name: str) -> str:
     # Replace underscores with spaces but keep hyphens for readability
     model_name = model_name.replace("_", " ")
     
-    # Shorten common terms to save space
-    replacements = {
-        "Instruct": "Inst",
-        "Instruction": "Inst",
-        "International": "Int'l",
-        "-AWQ": "",
-        "-GPTQ": "",
-        "-Quantized": "",
-        "Language": "Lang",
-        "Foundation": "Found",
-    }
-    
-    for old, new in replacements.items():
-        model_name = model_name.replace(old, new)
+    # If preserve_version is False, remove or shorten version-like parts
+    if not preserve_version:
+        # Shorten common terms to save space
+        replacements = {
+            "Instruct": "Inst",
+            "Instruction": "Inst",
+            "International": "Int'l",
+            "-AWQ": "",
+            "-GPTQ": "",
+            "-INT4": "",
+            "-INT8": "",
+            "-Quantized": "",
+            "Language": "Lang",
+            "Foundation": "Found",
+        }
+        
+        for old, new in replacements.items():
+            model_name = model_name.replace(old, new)
     
     # Capitalize model family names
-    for family in ["gpt", "llama", "mistral", "falcon", "mpt", "phi", "qwen", "hermes"]:
+    for family in ["gpt", "llama", "mistral", "falcon", "mpt", "phi", "qwen", "hermes", "dolphin"]:
         if family in model_name.lower():
             pattern = family
             replacement = family.upper()
@@ -164,7 +169,7 @@ def prettify_model_name(model_name: str) -> str:
             model_name = " ".join(parts)
     
     # Max length for chart readability
-    if len(model_name) > 30:
+    if len(model_name) > 32:
         # Try to smartly truncate
         parts = model_name.split("/")
         if len(parts) > 1:
@@ -172,12 +177,12 @@ def prettify_model_name(model_name: str) -> str:
             org, name = parts
             if len(org) > 10:
                 org = org[:8] + ".."
-            if len(name) > 18:
-                name = name[:16] + ".."
+            if len(name) > 20:
+                name = name[:18] + ".."
             model_name = f"{org}/{name}"
         else:
             # Just truncate with ellipsis
-            model_name = model_name[:28] + ".."
+            model_name = model_name[:30] + ".."
     
     return model_name
 

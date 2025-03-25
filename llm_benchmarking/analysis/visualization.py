@@ -85,7 +85,7 @@ def visualize_results(
         offset_x = 0.5
         offset_y = 0.05 * (i % 3) + 0.05  # Stagger labels vertically
         ax1.annotate(
-            prettify_model_name(row['Model']),
+            prettify_model_name(row['Model'], preserve_version=True),
             (row['Accuracy'] + offset_x, row['Set Size'] + offset_y),
             fontsize=9,
             alpha=0.9,
@@ -117,7 +117,7 @@ def visualize_results(
         offset_x = 0.5
         offset_y = 0.05 * (i % 3) + 0.05  # Stagger labels vertically
         ax2.annotate(
-            prettify_model_name(row['Model']),
+            prettify_model_name(row['Model'], preserve_version=True),
             (row['Coverage Rate'] + offset_x, row['Set Size'] + offset_y),
             fontsize=9,
             alpha=0.9,
@@ -175,7 +175,7 @@ def visualize_results(
         bar_width = 0.35
         
         # Get prettier model names for display
-        model_names_display = [prettify_model_name(m) for m in task_df['Model']]
+        model_names_display = [prettify_model_name(m, preserve_version=True) for m in task_df['Model']]
         
         # Plot accuracy bars
         accuracy_bars = ax.bar(
@@ -325,7 +325,40 @@ def visualize_task_comparisons(
     task_df = report_df[report_df['Task'] != 'Average'].copy()
     
     # Create prettier model names for display
-    pretty_names = {model: prettify_model_name(model) for model in task_df['Model'].unique()}
+    # Use preserve_version=True to help differentiate between similar models
+    pretty_names = {model: prettify_model_name(model, preserve_version=True) for model in task_df['Model'].unique()}
+    
+    # Check for duplicates in prettified names
+    name_counts = {}
+    for name in pretty_names.values():
+        name_counts[name] = name_counts.get(name, 0) + 1
+    
+    # Add suffix to duplicate names to make them unique
+    for model, name in list(pretty_names.items()):
+        if name_counts[name] > 1:
+            # Find a unique identifier from the original name
+            # (e.g. version number or some distinguishing part)
+            suffix = ''
+            parts = model.split('/')
+            if len(parts) > 1:
+                # Extract unique part from model name if possible
+                model_part = parts[-1]
+                if '-' in model_part:
+                    # Try to use version part if available
+                    version_part = model_part.split('-')[-2]
+                    if version_part.replace('.', '').isdigit():
+                        suffix = f" ({version_part})"
+            
+            # If no specific identifiable part, just use a counter
+            if not suffix:
+                counter = 1
+                for m, n in pretty_names.items():
+                    if n == name and m != model:
+                        counter += 1
+                suffix = f" ({counter})"
+                
+            pretty_names[model] = f"{name}{suffix}"
+    
     task_df['Display_Name'] = task_df['Model'].map(pretty_names)
     
     # Sort models by their average accuracy
@@ -437,6 +470,22 @@ def visualize_model_scaling(
     
     # Filter for average results
     avg_results = report_df[report_df['Task'] == 'Average'].copy()
+    
+    # Make sure size column will be unique for each model
+    # This is important when two models might get the same size value
+    size_cols = {}
+    for model in available_models:
+        size = model.split('-')[-1]
+        if size in size_cols:
+            size_cols[size].append(model)
+        else:
+            size_cols[size] = [model]
+    
+    # For any size with multiple models, make sure we have unique identifiers
+    for size, models in size_cols.items():
+        if len(models) > 1:
+            logger.warning(f"Multiple models with size {size}: {', '.join(models)}")
+            logger.warning("Results may be unreliable due to ambiguous size designations")
     
     # Sort by model size and create a proper categorical size column
     avg_results['Size'] = avg_results['Model'].apply(lambda x: x.split('-')[-1])
@@ -707,10 +756,33 @@ def visualize_correlation(
     # Filter out average results
     task_df = report_df[report_df['Task'] != 'Average'].copy()
     
+    # Add a note about duplicate index handling
+    logger.debug("Check for duplicate model names in the correlation analysis")
+    # Add model name as a column so we can refer to it after pivoting
+    task_df['Original_Model'] = task_df['Model']
+    
+    # Get unique model identifiers for index
+    unique_model_ids = {}
+    for model in task_df['Model'].unique():
+        display_name = prettify_model_name(model, preserve_version=True)
+        
+        # If this name already exists, make it unique
+        if display_name in unique_model_ids.values():
+            # Add a suffix with a counter
+            counter = 1
+            while f"{display_name} ({counter})" in unique_model_ids.values():
+                counter += 1
+            unique_model_ids[model] = f"{display_name} ({counter})"
+        else:
+            unique_model_ids[model] = display_name
+    
+    # Use the unique identifiers for the index
+    task_df['Model_ID'] = task_df['Model'].map(unique_model_ids)
+    
     # Pivot the data to get metrics by model and task
-    pivot_acc = task_df.pivot_table(index='Model', columns='Task', values='Accuracy')
-    pivot_cr = task_df.pivot_table(index='Model', columns='Task', values='Coverage Rate')
-    pivot_ss = task_df.pivot_table(index='Model', columns='Task', values='Set Size')
+    pivot_acc = task_df.pivot_table(index='Model_ID', columns='Task', values='Accuracy')
+    pivot_cr = task_df.pivot_table(index='Model_ID', columns='Task', values='Coverage Rate')
+    pivot_ss = task_df.pivot_table(index='Model_ID', columns='Task', values='Set Size')
     
     # Rename columns to indicate metric
     pivot_acc.columns = [f"{col}_acc" for col in pivot_acc.columns]
