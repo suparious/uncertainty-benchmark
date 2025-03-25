@@ -15,7 +15,8 @@ function show_help {
   echo "  -b, --batch-size SIZE      Batch size for inference (default: 32)"
   echo "  -w, --workers NUM          Number of worker processes (default: 1)"
   echo "  -q, --quantize TYPE        Quantization type (awq, gptq, none; default: none)"
-  echo "  -c, --enable-chat          Enable chat completions endpoint"
+  echo "  -c, --enable-chat [TEMPLATE] Enable chat completions endpoint with optional template
+                               (default: auto detection from model)"
   echo "  -t, --trust-remote-code    Trust remote code when loading models"
   echo "  -u, --gpu-util FRACTION    GPU memory utilization (0.0-1.0, default: 0.9)"
   echo "  -s, --swap-space SIZE      CPU swap space in GiB (default: 4)"
@@ -40,6 +41,7 @@ BATCH_SIZE=32
 WORKERS=1
 QUANTIZE="none"
 ENABLE_CHAT=false
+CHAT_TEMPLATE="auto"
 TRUST_REMOTE_CODE=false
 GPU_UTIL=0.9
 SWAP_SPACE=4
@@ -80,7 +82,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     -c|--enable-chat)
       ENABLE_CHAT=true
-      shift
+      # Check if the next argument is a valid parameter or not
+      if [[ -n "$2" && ! "$2" =~ ^- ]]; then
+        CHAT_TEMPLATE="$2"
+        shift 2
+      else
+        CHAT_TEMPLATE="auto"
+        shift
+      fi
       ;;
     -t|--trust-remote-code)
       TRUST_REMOTE_CODE=true
@@ -163,7 +172,13 @@ if [[ "$TRUST_REMOTE_CODE" == "true" ]]; then
 fi
 
 if [[ "$ENABLE_CHAT" == "true" ]]; then
-  EXTRA_ARGS+=" --chat-template chatml"
+  if [[ "$CHAT_TEMPLATE" == "auto" ]]; then
+    # Let vLLM auto-detect the chat template
+    EXTRA_ARGS+=" --chat-template-content-format auto"
+  else
+    # Use the provided template
+    EXTRA_ARGS+=" --chat-template \"$CHAT_TEMPLATE\""
+  fi
 fi
 
 if [[ ! -z "$TOOL_PARSER" ]]; then
@@ -184,6 +199,9 @@ echo "Quantization:           $QUANTIZE"
 echo "Data type:              $DTYPE"
 echo "Device:                 $DEVICE"
 echo "Chat mode:              $ENABLE_CHAT"
+if [[ "$ENABLE_CHAT" == "true" ]]; then
+  echo "Chat template:          $CHAT_TEMPLATE"
+fi
 echo "Trust remote code:      $TRUST_REMOTE_CODE"
 echo "Tool call parser:       ${TOOL_PARSER:-none}"
 echo "GPU memory utilization: $GPU_UTIL"
