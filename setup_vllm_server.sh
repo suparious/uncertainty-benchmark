@@ -19,12 +19,16 @@ function show_help {
   echo "  -t, --trust-remote-code    Trust remote code when loading models"
   echo "  -u, --gpu-util FRACTION    GPU memory utilization (0.0-1.0, default: 0.9)"
   echo "  -s, --swap-space SIZE      CPU swap space in GiB (default: 4)"
-  echo "  -d, --dtype TYPE           Model data type (float16, bfloat16, default: bfloat16)"
+  echo "  -d, --dtype TYPE           Model data type (float16, bfloat16, auto, default: bfloat16)"
   echo "  -l, --logprobs NUM         Return top N logprobs for token predictions (default: 10)"
   echo "  -e, --env-path PATH        Path to virtual environment (default: ./venv)"
+  echo "  -v, --device DEVICE        Device to use (auto, cuda, cpu, default: auto)"
+  echo "  -o, --tool-parser TYPE     Tool call parser type (hermes, llama3_json, mistral, etc.)"
+  echo "  -x, --extra-args ARGS      Additional arguments to pass to vLLM (quote the whole string)"
+  echo "  -k, --hf-token TOKEN       Hugging Face API token for private models"
   echo "  -h, --help                 Display this help message"
   echo ""
-  echo "Example: $0 -g 0,1 -p 8080 -q awq -m 4096 meta-llama/Llama-3-8b-instruct"
+  echo "Example: $0 -g 0,1 -p 8080 -q awq -m 4096 -t -o hermes meta-llama/Llama-3-8b-instruct"
   exit 0
 }
 
@@ -42,7 +46,10 @@ SWAP_SPACE=4
 DTYPE="bfloat16"
 LOGPROBS=10
 ENV_PATH="./venv"
+DEVICE="auto"
+TOOL_PARSER=""
 EXTRA_ARGS=""
+HF_TOKEN=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -99,6 +106,22 @@ while [[ $# -gt 0 ]]; do
       ENV_PATH="$2"
       shift 2
       ;;
+    -v|--device)
+      DEVICE="$2"
+      shift 2
+      ;;
+    -o|--tool-parser)
+      TOOL_PARSER="$2"
+      shift 2
+      ;;
+    -x|--extra-args)
+      EXTRA_ARGS="$EXTRA_ARGS $2"
+      shift 2
+      ;;
+    -k|--hf-token)
+      HF_TOKEN="$2"
+      shift 2
+      ;;
     -h|--help)
       show_help
       ;;
@@ -130,7 +153,7 @@ fi
 # Calculate number of GPUs for tensor parallelism
 NUM_GPUS=$(echo $GPU_IDS | tr ',' '\n' | wc -l)
 
-# Build extra arguments
+# Build arguments
 if [[ "$QUANTIZE" != "none" ]]; then
   EXTRA_ARGS+=" --quantization $QUANTIZE"
 fi
@@ -141,6 +164,10 @@ fi
 
 if [[ "$ENABLE_CHAT" == "true" ]]; then
   EXTRA_ARGS+=" --chat-template chatml"
+fi
+
+if [[ ! -z "$TOOL_PARSER" ]]; then
+  EXTRA_ARGS+=" --tool-call-parser $TOOL_PARSER"
 fi
 
 # Print configuration
@@ -155,12 +182,15 @@ echo "Batch size:             $BATCH_SIZE"
 echo "Workers:                $WORKERS"
 echo "Quantization:           $QUANTIZE"
 echo "Data type:              $DTYPE"
+echo "Device:                 $DEVICE"
 echo "Chat mode:              $ENABLE_CHAT"
 echo "Trust remote code:      $TRUST_REMOTE_CODE"
+echo "Tool call parser:       ${TOOL_PARSER:-none}"
 echo "GPU memory utilization: $GPU_UTIL"
 echo "CPU swap space:         $SWAP_SPACE GiB"
 echo "LogProbs:               $LOGPROBS"
 echo "Virtual env path:       $ENV_PATH"
+echo "Extra args:             ${EXTRA_ARGS:-none}"
 echo "=============================================="
 
 # Create a Python virtual environment if it doesn't exist
@@ -183,6 +213,12 @@ export NCCL_P2P_DISABLE=1  # Try disabling NCCL P2P for better multi-GPU perform
 export CUDA_VISIBLE_DEVICES=$GPU_IDS
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 
+# Set Hugging Face token if provided
+if [[ ! -z "$HF_TOKEN" ]]; then
+  export HUGGING_FACE_HUB_TOKEN="$HF_TOKEN"
+  echo "Hugging Face token set for accessing private models"
+fi
+
 # Start the vLLM OpenAI-compatible server
 echo ""
 echo "Starting optimized vLLM server for model: $MODEL_NAME"
@@ -196,6 +232,7 @@ python -m vllm.entrypoints.openai.api_server \
   --gpu-memory-utilization $GPU_UTIL \
   --tensor-parallel-size $NUM_GPUS \
   --dtype $DTYPE \
+  --device $DEVICE \
   --max-model-len $MAX_MODEL_LEN \
   --served-model-name "$(basename $MODEL_NAME)" \
   --port $PORT \
