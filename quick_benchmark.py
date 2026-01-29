@@ -173,9 +173,9 @@ def test_reasoning(api_base: str, model: str) -> dict:
                     "model": model,
                     "messages": [
                         {"role": "system", "content": "Answer concisely with just the answer value. No explanation needed."},
-                        {"role": "user", "content": item["q"]}
+                        {"role": "user", "content": item["q"] + " /no_think"}  # Disable thinking for concise answers
                     ],
-                    "max_tokens": 500,  # Increased for think tags
+                    "max_tokens": 100,  # Concise answers don't need much
                     "temperature": 0
                 },
                 timeout=60
@@ -249,9 +249,9 @@ def test_knowledge(api_base: str, model: str) -> dict:
                     "model": model,
                     "messages": [
                         {"role": "system", "content": "Answer with just the answer value. Be brief."},
-                        {"role": "user", "content": item["q"]}
+                        {"role": "user", "content": item["q"] + " /no_think"}  # Disable thinking for concise answers
                     ],
-                    "max_tokens": 200,
+                    "max_tokens": 100,  # Concise answers don't need much
                     "temperature": 0
                 },
                 timeout=60
@@ -329,7 +329,8 @@ def test_tool_calling(api_base: str, model: str) -> dict:
                 "tools": tools,
                 "tool_choice": "auto",
                 "max_tokens": 100,
-                "temperature": 0
+                "temperature": 0.6,  # Model card: DON'T use temp=0 with thinking mode
+                "top_p": 0.95
             },
             timeout=60
         )
@@ -382,7 +383,8 @@ def test_tool_calling(api_base: str, model: str) -> dict:
                 "tools": tools,
                 "tool_choice": {"type": "function", "function": {"name": "get_weather"}},
                 "max_tokens": 100,
-                "temperature": 0
+                "temperature": 0.6,  # Model card: DON'T use temp=0 with thinking mode
+                "top_p": 0.95
             },
             timeout=60
         )
@@ -441,7 +443,8 @@ def test_structured_output(api_base: str, model: str) -> dict:
                 ],
                 "response_format": {"type": "json_object"},
                 "max_tokens": 200,
-                "temperature": 0
+                "temperature": 0.6,  # Model card: DON'T use temp=0 with thinking mode
+                "top_p": 0.95
             },
             timeout=60
         )
@@ -457,7 +460,8 @@ def test_structured_output(api_base: str, model: str) -> dict:
                         {"role": "user", "content": "List 3 programming languages with their main use case. Return as JSON array."}
                     ],
                     "max_tokens": 200,
-                    "temperature": 0
+                    "temperature": 0.6,  # Model card: DON'T use temp=0 with thinking mode
+                    "top_p": 0.95
                 },
                 timeout=60
             )
