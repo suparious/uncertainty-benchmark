@@ -31,11 +31,16 @@ def strip_think_tags(text: str) -> str:
     if not text:
         return text
 
-    # Check if response contains think tags
+    # First try to match complete think blocks
     think_pattern = r'<think>.*?</think>\s*'
-
-    # Use DOTALL flag to match across newlines
     cleaned = re.sub(think_pattern, '', text, flags=re.DOTALL)
+
+    # If that didn't change anything, check for unclosed <think> tag
+    # (happens when response is truncated at max_tokens)
+    if cleaned == text and '<think>' in text.lower():
+        # Remove everything from <think> to end of string
+        unclosed_pattern = r'<think>.*$'
+        cleaned = re.sub(unclosed_pattern, '', text, flags=re.DOTALL | re.IGNORECASE)
 
     # If we removed think tags, return the cleaned text
     # Otherwise return original (model doesn't use think tags)
@@ -170,7 +175,7 @@ def test_reasoning(api_base: str, model: str) -> dict:
                         {"role": "system", "content": "Answer concisely with just the answer value. No explanation needed."},
                         {"role": "user", "content": item["q"]}
                     ],
-                    "max_tokens": 200,  # Increased for think tags
+                    "max_tokens": 500,  # Increased for think tags
                     "temperature": 0
                 },
                 timeout=60
